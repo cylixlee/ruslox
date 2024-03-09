@@ -5,6 +5,8 @@ use shared::{
     value::Value,
 };
 
+use crate::parser::Token;
+
 mod parser;
 
 pub fn compile(source: impl AsRef<str>) -> InterpretResult<Chunk> {
@@ -16,56 +18,54 @@ pub fn compile(source: impl AsRef<str>) -> InterpretResult<Chunk> {
 }
 
 fn emit(chunk: &mut Chunk, expression: &Expression) -> InterpretResult {
-    macro_rules! emit_binary {
-        ($left:expr, $right:expr, $inst:ident) => {{
-            emit(chunk, &$left)?;
-            emit(chunk, &$right)?;
-            chunk.write(Instruction::$inst);
-        }};
-    }
-
-    use Expression::*;
     match expression {
-        Number(number) => {
-            let index = chunk.add_constant(Value::Number(*number))?;
-            chunk.write(Instruction::Constant(index));
-        }
-        Boolean(boolean) => match boolean {
-            true => chunk.write(Instruction::True),
-            false => chunk.write(Instruction::False),
+        Expression::Literal(literal) => match literal {
+            Token::Number(n) => {
+                let constant_index = chunk.add_constant(Value::Number(*n))?;
+                chunk.write(Instruction::Constant(constant_index));
+            }
+            Token::True => chunk.write(Instruction::True),
+            Token::False => chunk.write(Instruction::False),
+            Token::Nil => chunk.write(Instruction::Nil),
+            _ => unreachable!("internal error when parsing literals."),
         },
-        Nil => chunk.write(Instruction::Nil),
-        Negation(expression) => {
-            emit(chunk, expression)?;
-            chunk.write(Instruction::Negate);
+        Expression::Unary(operator, expr) => {
+            emit(chunk, &expr)?;
+            match operator {
+                Token::Minus => chunk.write(Instruction::Negate),
+                Token::Bang => chunk.write(Instruction::Not),
+                _ => unreachable!("internal error when parsing unary expressions."),
+            }
         }
-        Not(expression) => {
-            emit(chunk, expression)?;
-            chunk.write(Instruction::Not);
+        Expression::Binary(left, operator, right) => {
+            emit(chunk, &left)?;
+            emit(chunk, &right)?;
+            match operator {
+                Token::Plus => chunk.write(Instruction::Add),
+                Token::Minus => chunk.write(Instruction::Subtract),
+                Token::Star => chunk.write(Instruction::Multiply),
+                Token::Slash => chunk.write(Instruction::Divide),
+                Token::Greater => chunk.write(Instruction::Greater),
+                Token::Less => chunk.write(Instruction::Less),
+                Token::EqualEqual => chunk.write(Instruction::Equal),
+                Token::GreaterEqual => {
+                    chunk.write(Instruction::Less);
+                    chunk.write(Instruction::Not);
+                }
+                Token::LessEqual => {
+                    chunk.write(Instruction::Greater);
+                    chunk.write(Instruction::Not);
+                }
+                Token::NotEqual => {
+                    chunk.write(Instruction::Equal);
+                    chunk.write(Instruction::Not);
+                }
+                _ => unreachable!("internal error when parsing binary expressions."),
+            }
         }
-        Add(left, right) => emit_binary!(left, right, Add),
-        Subtract(left, right) => emit_binary!(left, right, Subtract),
-        Multiply(left, right) => emit_binary!(left, right, Multiply),
-        Divide(left, right) => emit_binary!(left, right, Divide),
-
-        Greater(left, right) => emit_binary!(left, right, Greater),
-        Less(left, right) => emit_binary!(left, right, Less),
-        GreaterEqual(left, right) => {
-            emit_binary!(left, right, Less);
-            chunk.write(Instruction::Not);
+        Expression::Error => {
+            unreachable!("error expressions should be reported rather than emitted.")
         }
-        LessEqual(left, right) => {
-            emit_binary!(left, right, Greater);
-            chunk.write(Instruction::Not);
-        }
-        Equal(left, right) => emit_binary!(left, right, Equal),
-        NotEqual(left, right) => {
-            emit_binary!(left, right, Equal);
-            chunk.write(Instruction::Not);
-        }
-
-        // Unreachable.
-        Error => unreachable!("error should be reported rather than emitted."),
     }
     Ok(())
 }

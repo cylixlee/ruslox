@@ -2,43 +2,6 @@ use std::cell::RefCell;
 
 use shared::error::{InterpretError, InterpretResult};
 
-macro_rules! def_expr {
-    (
-        <Literal> { $($lcase:ident $(=> $($typs:ty),*)? ;)* }
-        <Unary>   { $($ucase:ident, )* }
-        <Binary>  { $($bcase:ident, )* }
-    ) => {
-        pub(crate) enum Expression {
-            $(
-                $lcase $(($($typs), *))? ,
-            )*
-            $(
-                $ucase(Box<Expression>),
-            )*
-            $(
-                $bcase(Box<Expression>, Box<Expression>),
-            )*
-        }
-    };
-}
-
-def_expr! {
-    <Literal> {
-        Number  => f64;
-        Boolean => bool;
-        Nil; /* Special */ Error;
-    }
-
-    <Unary> {
-        Negation, Not,
-    }
-
-    <Binary> {
-        Add, Subtract, Multiply, Divide,
-        Greater, GreaterEqual, Less, LessEqual, Equal, NotEqual,
-    }
-}
-
 struct ParseContext<'input> {
     source: &'input str,
     errors: Option<Vec<InterpretError>>,
@@ -92,8 +55,31 @@ impl<'input> ParseContext<'input> {
     }
 }
 
+#[rustfmt::skip]
+pub(crate) enum Token {
+    // Literal tokens.
+    Number(f64), True, False, Nil,
+
+    // Operator tokens.
+    Plus, Minus, Star, Slash, Bang,
+    Greater, GreaterEqual, Less, LessEqual, EqualEqual, NotEqual,
+
+    // Placeholder token for error recovery.
+    Error,
+}
+
+pub(crate) enum Expression {
+    Literal(Token),
+    Unary(Token, Box<Expression>),
+    Binary(Box<Expression>, Token, Box<Expression>),
+
+    // Placeholder token for error recovery.
+    Error,
+}
+
 peg::parser!(grammar pegparser(context: &RefCell<ParseContext>) for str {
     use std::str::FromStr;
+    use Token::*;
     use Expression::*;
 
     pub rule expression() -> Expression
@@ -101,50 +87,51 @@ peg::parser!(grammar pegparser(context: &RefCell<ParseContext>) for str {
 
     rule expression_precedence(boundary: char) -> Expression = precedence! {
         // Equality expressions
-        x:(@) _ "==" _ y:@ { Equal(Box::new(x), Box::new(y)) }
-        x:(@) _ "!=" _ y:@ { NotEqual(Box::new(x), Box::new(y)) }
+        x:(@) _ "==" _ y:@ { Binary(Box::new(x), EqualEqual, Box::new(y)) }
+        x:(@) _ "!=" _ y:@ { Binary(Box::new(x), NotEqual, Box::new(y)) }
 
         -- // Comparison expressions
-        x:(@) _ ">=" _ y:@ { GreaterEqual(Box::new(x), Box::new(y)) }
-        x:(@) _ "<=" _ y:@ { LessEqual(Box::new(x), Box::new(y)) }
-        x:(@) _ ">" _ y:@ { Greater(Box::new(x), Box::new(y)) }
-        x:(@) _ "<" _ y:@ { Less(Box::new(x), Box::new(y)) }
+        x:(@) _ ">=" _ y:@ { Binary(Box::new(x), GreaterEqual, Box::new(y)) }
+        x:(@) _ "<=" _ y:@ { Binary(Box::new(x), LessEqual, Box::new(y)) }
+        x:(@) _ ">" _ y:@ { Binary(Box::new(x), Greater, Box::new(y)) }
+        x:(@) _ "<" _ y:@ { Binary(Box::new(x), Less, Box::new(y)) }
 
-        -- // Term binary expressions
-        x:(@) _ "+" _ y:@ { Add(Box::new(x), Box::new(y)) }
-        x:(@) _ "-" _ y:@ { Subtract(Box::new(x), Box::new(y)) }
+        -- // Term expressions
+        x:(@) _ "+" _ y:@ { Binary(Box::new(x), Plus, Box::new(y)) }
+        x:(@) _ "-" _ y:@ { Binary(Box::new(x), Minus, Box::new(y)) }
 
-        -- // Factor binary expressions
-        x:(@) _ "*" _ y:@ { Multiply(Box::new(x), Box::new(y)) }
-        x:(@) _ "/" _ y:@ { Divide(Box::new(x), Box::new(y)) }
+        -- // Factor expressions
+        x:(@) _ "*" _ y:@ { Binary(Box::new(x), Star, Box::new(y)) }
+        x:(@) _ "/" _ y:@ { Binary(Box::new(x), Slash, Box::new(y)) }
 
         -- // Unary expressions
-        "-" _ e:(@) { Negation(Box::new(e)) }
-        "!" _ e:(@) { Not(Box::new(e)) }
+        "-" _ e:(@) { Unary(Minus, Box::new(e)) }
+        "!" _ e:(@) { Unary(Bang, Box::new(e)) }
 
         -- // Primary expressions.
-        n:literal() { n }                              // Literal
+        l:literal() { Literal(l) }                     // Literal
         "(" _ e:expression_precedence(')') _ ")" { e } // Grouping
+
         // Error token until the expression boundary.
         pos:position!() s:$([c if c != boundary]+) {
             context.borrow_mut().report(format!("unrecognized token {}", s), pos);
-            Error
+            Expression::Error
         }
     }
 
-    rule literal() -> Expression
+    rule literal() -> Token
         = pos:position!() s:$(numeric()+ ("." numeric()+)?) {
             match f64::from_str(s) {
                 Ok(n)  => Number(n),
                 Err(_) => {
                     context.borrow_mut().report(format!("invalid number {}", s), pos);
-                    Error
+                    Token::Error
                 }
             }
         }
-        / "true"  { Expression::Boolean(true) }
-        / "false" { Expression::Boolean(false) }
-        / "nil"   { Expression::Nil }
+        / "true"  { True }
+        / "false" { False }
+        / "nil"   { Nil }
 
     rule _ = [' ' | '\t' | '\r' | '\n']*
 
