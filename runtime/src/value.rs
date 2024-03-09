@@ -1,10 +1,19 @@
 use std::fmt::Display;
 
-#[derive(Clone)]
-pub enum Value {
+use shared::constant::Constant;
+
+pub(crate) enum Value {
     Boolean(bool),
     Nil,
     Number(f64),
+}
+
+impl From<Constant> for Value {
+    fn from(value: Constant) -> Self {
+        match value {
+            Constant::Number(number) => Self::Number(number),
+        }
+    }
 }
 
 impl Display for Value {

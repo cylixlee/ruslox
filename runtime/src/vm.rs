@@ -1,8 +1,9 @@
 use shared::{
     chunk::{Chunk, Instruction},
     error::{InterpretError, InterpretResult},
-    value::Value,
 };
+
+use crate::value::Value;
 
 use self::stack::Stack;
 
@@ -79,8 +80,8 @@ impl VirtualMachine {
             match &chunk.code[self.offset] {
                 // Instructions with operand.
                 Instruction::Constant(constant_index) => {
-                    let value = chunk.constants[*constant_index as usize].clone();
-                    self.stack.push(value)?;
+                    let constant = chunk.constants[*constant_index as usize].clone();
+                    self.stack.push(Value::from(constant))?;
                 }
 
                 // Literal instructions.

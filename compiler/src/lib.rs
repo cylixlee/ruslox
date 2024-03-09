@@ -1,8 +1,8 @@
 use parser::Expression;
 use shared::{
     chunk::{Chunk, Instruction},
+    constant::Constant,
     error::InterpretResult,
-    value::Value,
 };
 
 use crate::parser::Token;
@@ -21,7 +21,7 @@ fn emit(chunk: &mut Chunk, expression: &Expression) -> InterpretResult {
     match expression {
         Expression::Literal(literal) => match literal {
             Token::Number(n) => {
-                let constant_index = chunk.add_constant(Value::Number(*n))?;
+                let constant_index = chunk.add_constant(Constant::Number(*n))?;
                 chunk.write(Instruction::Constant(constant_index));
             }
             Token::True => chunk.write(Instruction::True),

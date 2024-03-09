@@ -1,6 +1,6 @@
 use crate::{
+    constant::Constant,
     error::{InterpretError, InterpretResult},
-    value::Value,
 };
 
 #[rustfmt::skip]
@@ -23,7 +23,7 @@ pub enum Instruction {
 
 pub struct Chunk {
     pub code: Vec<Instruction>,
-    pub constants: Vec<Value>,
+    pub constants: Vec<Constant>,
 }
 
 impl Chunk {
@@ -38,7 +38,7 @@ impl Chunk {
         self.code.push(instruction);
     }
 
-    pub fn add_constant(&mut self, value: Value) -> InterpretResult<u8> {
+    pub fn add_constant(&mut self, value: Constant) -> InterpretResult<u8> {
         if self.constants.len() >= u8::MAX as usize + 1 {
             return Err(InterpretError::CompileError(
                 "Too many constants in one chunk.".into(),
