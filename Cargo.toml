@@ -1,0 +1,8 @@
+[workspace]
+resolver = "2"
+members = ["cli", "compiler", "runtime", "shared"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+authors = ["Cylix Lee<cylix.lee@outlook.com>"]
