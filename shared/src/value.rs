@@ -16,3 +16,17 @@ impl Display for Value {
         }
     }
 }
+
+impl PartialEq for Value {
+    fn eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (Self::Boolean(left), Self::Boolean(right)) => left == right,
+            (Self::Number(left), Self::Number(right)) => (left - right).abs() < f64::EPSILON,
+            (Self::Nil, Self::Nil) => true,
+
+            _ => false,
+        }
+    }
+}
+
+impl Eq for Value {}

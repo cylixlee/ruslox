@@ -3,16 +3,21 @@ use crate::{
     value::Value,
 };
 
+#[rustfmt::skip]
 pub enum Instruction {
+    // Instructions with operand.
     Constant(u8),
-    Nil,
-    True,
-    False,
-    Add,
-    Subtract,
-    Multiply,
-    Divide,
-    Negate,
+
+    // Literal instructions.
+    Nil, True, False,
+
+    // Arithmetic instructions.
+    Add, Subtract, Multiply, Divide, Negate,
+
+    // Logic instructions.
+    Not, Equal, Greater, Less,
+
+    // Miscellaneous.
     Return,
 }
 
@@ -55,17 +60,30 @@ impl Chunk {
         print!("{:04} ", offset);
 
         match &self.code[offset] {
+            // Instructions with operand.
             Instruction::Constant(constant_index) => {
                 constant_instruction("CONST", constant_index, self)
             }
+
+            // Literal instructions.
             Instruction::Nil => simple_instruction("NIL"),
             Instruction::True => simple_instruction("TRUE"),
             Instruction::False => simple_instruction("FALSE"),
+
+            // Arithmetic instructions.
             Instruction::Add => simple_instruction("ADD"),
             Instruction::Subtract => simple_instruction("SUB"),
             Instruction::Multiply => simple_instruction("MUL"),
             Instruction::Divide => simple_instruction("DIV"),
             Instruction::Negate => simple_instruction("NEG"),
+
+            // Logic instructions.
+            Instruction::Not => simple_instruction("NOT"),
+            Instruction::Equal => simple_instruction("EQUAL"),
+            Instruction::Greater => simple_instruction("GREATER"),
+            Instruction::Less => simple_instruction("LESS"),
+
+            // Miscellaneous.
             Instruction::Return => simple_instruction("RET"),
         }
     }

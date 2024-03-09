@@ -37,13 +37,13 @@ impl VirtualMachine {
 
     fn run(&mut self) -> InterpretResult {
         macro_rules! arithmetic {
-            ($operator: tt) => {{
+            ($operator:tt, $typ:ident) => {{
                 let right = self.stack.pop()?;
                 let left = self.stack.pop()?;
 
                 match (left, right) {
                     (Value::Number(left), Value::Number(right)) => {
-                        self.stack.push(Value::Number(left $operator right))?;
+                        self.stack.push(Value::$typ(left $operator right))?;
                     }
 
                     _ => {
@@ -53,6 +53,14 @@ impl VirtualMachine {
                     }
                 }
             }};
+        }
+
+        #[rustfmt::skip] macro_rules! arithmetic_calc {
+            ($operator:tt) => { arithmetic!($operator, Number) };
+        }
+
+        #[rustfmt::skip] macro_rules! arithmetic_cmp {
+            ($operator:tt) => { arithmetic!($operator, Boolean) };
         }
 
         let chunk = self.chunk.as_ref().unwrap();
@@ -69,17 +77,22 @@ impl VirtualMachine {
             }
 
             match &chunk.code[self.offset] {
+                // Instructions with operand.
                 Instruction::Constant(constant_index) => {
                     let value = chunk.constants[*constant_index as usize].clone();
                     self.stack.push(value)?;
                 }
+
+                // Literal instructions.
                 Instruction::Nil => self.stack.push(Value::Nil)?,
                 Instruction::True => self.stack.push(Value::Boolean(true))?,
                 Instruction::False => self.stack.push(Value::Boolean(false))?,
-                Instruction::Add => arithmetic!(+),
-                Instruction::Subtract => arithmetic!(-),
-                Instruction::Multiply => arithmetic!(*),
-                Instruction::Divide => arithmetic!(/),
+
+                // Arithmetic instructions.
+                Instruction::Add => arithmetic_calc!(+),
+                Instruction::Subtract => arithmetic_calc!(-),
+                Instruction::Multiply => arithmetic_calc!(*),
+                Instruction::Divide => arithmetic_calc!(/),
                 Instruction::Negate => match self.stack.pop()? {
                     Value::Number(number) => self.stack.push(Value::Number(-number))?,
                     _ => {
@@ -88,6 +101,25 @@ impl VirtualMachine {
                         ))
                     }
                 },
+
+                // Logic instructions.
+                Instruction::Not => match self.stack.pop()? {
+                    // Regular unary-not operation on booleans.
+                    Value::Boolean(boolean) => self.stack.push(Value::Boolean(!boolean))?,
+                    // Nil is falsy.
+                    Value::Nil => self.stack.push(Value::Boolean(true))?,
+                    // Other value is implicit converted to true.
+                    _ => self.stack.push(Value::Boolean(false))?,
+                },
+                Instruction::Equal => {
+                    let right = self.stack.pop()?;
+                    let left = self.stack.pop()?;
+                    self.stack.push(Value::Boolean(left == right))?;
+                }
+                Instruction::Greater => arithmetic_cmp!(>),
+                Instruction::Less => arithmetic_cmp!(<),
+
+                // Miscellaneous.
                 Instruction::Return => {
                     println!("{}", self.stack.pop()?);
                     return Ok(());

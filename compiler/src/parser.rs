@@ -2,17 +2,41 @@ use std::cell::RefCell;
 
 use shared::error::{InterpretError, InterpretResult};
 
-#[derive(Debug)]
-pub(crate) enum Expression {
-    Number(f64),
-    Negation(Box<Expression>),
-    Add(Box<Expression>, Box<Expression>),
-    Subtract(Box<Expression>, Box<Expression>),
-    Multiply(Box<Expression>, Box<Expression>),
-    Divide(Box<Expression>, Box<Expression>),
+macro_rules! def_expr {
+    (
+        <Literal> { $($lcase:ident $(=> $($typs:ty),*)? ;)* }
+        <Unary>   { $($ucase:ident, )* }
+        <Binary>  { $($bcase:ident, )* }
+    ) => {
+        pub(crate) enum Expression {
+            $(
+                $lcase $(($($typs), *))? ,
+            )*
+            $(
+                $ucase(Box<Expression>),
+            )*
+            $(
+                $bcase(Box<Expression>, Box<Expression>),
+            )*
+        }
+    };
+}
 
-    // Special expression for error recovery.
-    Error,
+def_expr! {
+    <Literal> {
+        Number  => f64;
+        Boolean => bool;
+        Nil; /* Special */ Error;
+    }
+
+    <Unary> {
+        Negation, Not,
+    }
+
+    <Binary> {
+        Add, Subtract, Multiply, Divide,
+        Greater, GreaterEqual, Less, LessEqual, Equal, NotEqual,
+    }
 }
 
 struct ParseContext<'input> {
@@ -76,19 +100,30 @@ peg::parser!(grammar pegparser(context: &RefCell<ParseContext>) for str {
         = _ e:expression_precedence('\n') _ { e }
 
     rule expression_precedence(boundary: char) -> Expression = precedence! {
-        // Term Binary Expressions
+        // Equality expressions
+        x:(@) _ "==" _ y:@ { Equal(Box::new(x), Box::new(y)) }
+        x:(@) _ "!=" _ y:@ { NotEqual(Box::new(x), Box::new(y)) }
+
+        -- // Comparison expressions
+        x:(@) _ ">=" _ y:@ { GreaterEqual(Box::new(x), Box::new(y)) }
+        x:(@) _ "<=" _ y:@ { LessEqual(Box::new(x), Box::new(y)) }
+        x:(@) _ ">" _ y:@ { Greater(Box::new(x), Box::new(y)) }
+        x:(@) _ "<" _ y:@ { Less(Box::new(x), Box::new(y)) }
+
+        -- // Term binary expressions
         x:(@) _ "+" _ y:@ { Add(Box::new(x), Box::new(y)) }
         x:(@) _ "-" _ y:@ { Subtract(Box::new(x), Box::new(y)) }
 
-        -- // Factor Binary Expressions
+        -- // Factor binary expressions
         x:(@) _ "*" _ y:@ { Multiply(Box::new(x), Box::new(y)) }
         x:(@) _ "/" _ y:@ { Divide(Box::new(x), Box::new(y)) }
 
-        -- // Unary Expressions
+        -- // Unary expressions
         "-" _ e:(@) { Negation(Box::new(e)) }
+        "!" _ e:(@) { Not(Box::new(e)) }
 
         -- // Primary expressions.
-        n:number()                    { n } // Number
+        n:literal() { n }                              // Literal
         "(" _ e:expression_precedence(')') _ ")" { e } // Grouping
         // Error token until the expression boundary.
         pos:position!() s:$([c if c != boundary]+) {
@@ -97,7 +132,7 @@ peg::parser!(grammar pegparser(context: &RefCell<ParseContext>) for str {
         }
     }
 
-    rule number() -> Expression
+    rule literal() -> Expression
         = pos:position!() s:$(numeric()+ ("." numeric()+)?) {
             match f64::from_str(s) {
                 Ok(n)  => Number(n),
@@ -107,6 +142,9 @@ peg::parser!(grammar pegparser(context: &RefCell<ParseContext>) for str {
                 }
             }
         }
+        / "true"  { Expression::Boolean(true) }
+        / "false" { Expression::Boolean(false) }
+        / "nil"   { Expression::Nil }
 
     rule _ = [' ' | '\t' | '\r' | '\n']*
 

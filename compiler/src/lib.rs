@@ -24,22 +24,48 @@ fn emit(chunk: &mut Chunk, expression: &Expression) -> InterpretResult {
         }};
     }
 
+    use Expression::*;
     match expression {
-        Expression::Number(number) => {
+        Number(number) => {
             let index = chunk.add_constant(Value::Number(*number))?;
             chunk.write(Instruction::Constant(index));
         }
-        Expression::Negation(expression) => {
+        Boolean(boolean) => match boolean {
+            true => chunk.write(Instruction::True),
+            false => chunk.write(Instruction::False),
+        },
+        Nil => chunk.write(Instruction::Nil),
+        Negation(expression) => {
             emit(chunk, expression)?;
             chunk.write(Instruction::Negate);
         }
-        Expression::Add(left, right) => emit_binary!(left, right, Add),
-        Expression::Subtract(left, right) => emit_binary!(left, right, Subtract),
-        Expression::Multiply(left, right) => emit_binary!(left, right, Multiply),
-        Expression::Divide(left, right) => emit_binary!(left, right, Divide),
+        Not(expression) => {
+            emit(chunk, expression)?;
+            chunk.write(Instruction::Not);
+        }
+        Add(left, right) => emit_binary!(left, right, Add),
+        Subtract(left, right) => emit_binary!(left, right, Subtract),
+        Multiply(left, right) => emit_binary!(left, right, Multiply),
+        Divide(left, right) => emit_binary!(left, right, Divide),
+
+        Greater(left, right) => emit_binary!(left, right, Greater),
+        Less(left, right) => emit_binary!(left, right, Less),
+        GreaterEqual(left, right) => {
+            emit_binary!(left, right, Less);
+            chunk.write(Instruction::Not);
+        }
+        LessEqual(left, right) => {
+            emit_binary!(left, right, Greater);
+            chunk.write(Instruction::Not);
+        }
+        Equal(left, right) => emit_binary!(left, right, Equal),
+        NotEqual(left, right) => {
+            emit_binary!(left, right, Equal);
+            chunk.write(Instruction::Not);
+        }
 
         // Unreachable.
-        Expression::Error => unreachable!("error should be reported rather than emitted."),
+        Error => unreachable!("error should be reported rather than emitted."),
     }
     Ok(())
 }
