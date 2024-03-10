@@ -56,14 +56,14 @@ fn emit(chunk: &mut Chunk, expression: &Expression) -> InterpretResult {
                     chunk.write(Instruction::Greater);
                     chunk.write(Instruction::Not);
                 }
-                Token::NotEqual => {
+                Token::BangEqual => {
                     chunk.write(Instruction::Equal);
                     chunk.write(Instruction::Not);
                 }
                 _ => unreachable!("internal error when parsing binary expressions."),
             }
         }
-        Expression::Error => {
+        Expression::ErrorExpr => {
             unreachable!("error expressions should be reported rather than emitted.")
         }
     }

@@ -10,17 +10,22 @@ use shared::error::InterpretResult;
 
 const REPL_SIGN: &str = ">>";
 
-fn main() -> InterpretResult {
+fn main() {
     let args: Vec<String> = env::args().collect();
     let mut vm = VirtualMachine::new();
 
-    match args.len() {
+    let result = match args.len() {
         1 => repl(&mut vm),
         2 => run_file(&mut vm, &args[1]),
         _ => {
             eprintln!("Usage: ruslox [script]");
-            process::exit(64);
+            Ok(())
         }
+    };
+
+    if let Err(e) = result {
+        eprintln!("{}", e);
+        process::exit(1);
     }
 }
 

@@ -2,10 +2,13 @@ use std::fmt::Display;
 
 use shared::constant::Constant;
 
+use crate::object::{ManagedReference, Object};
+
 pub(crate) enum Value {
-    Boolean(bool),
     Nil,
     Number(f64),
+    Boolean(bool),
+    Reference(ManagedReference<Object>),
 }
 
 impl From<Constant> for Value {
@@ -19,9 +22,10 @@ impl From<Constant> for Value {
 impl Display for Value {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
+            Value::Nil => write!(f, "nil"),
             Value::Number(number) => write!(f, "{}", number),
             Value::Boolean(boolean) => write!(f, "{}", boolean),
-            Value::Nil => write!(f, "nil"),
+            Value::Reference(reference) => write!(f, "{}", reference),
         }
     }
 }
@@ -29,9 +33,10 @@ impl Display for Value {
 impl PartialEq for Value {
     fn eq(&self, other: &Self) -> bool {
         match (self, other) {
-            (Self::Boolean(left), Self::Boolean(right)) => left == right,
-            (Self::Number(left), Self::Number(right)) => (left - right).abs() < f64::EPSILON,
             (Self::Nil, Self::Nil) => true,
+            (Self::Number(left), Self::Number(right)) => (left - right).abs() < f64::EPSILON,
+            (Self::Boolean(left), Self::Boolean(right)) => left == right,
+            (Self::Reference(left), Self::Reference(right)) => left == right,
 
             _ => false,
         }

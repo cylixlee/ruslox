@@ -62,10 +62,11 @@ pub(crate) enum Token {
 
     // Operator tokens.
     Plus, Minus, Star, Slash, Bang,
-    Greater, GreaterEqual, Less, LessEqual, EqualEqual, NotEqual,
+    Greater, GreaterEqual, Less, LessEqual, EqualEqual, BangEqual,
+    LeftParenthesis, RightParenthesis,
 
     // Placeholder token for error recovery.
-    Error,
+    ErrorToken,
 }
 
 pub(crate) enum Expression {
@@ -74,7 +75,7 @@ pub(crate) enum Expression {
     Binary(Box<Expression>, Token, Box<Expression>),
 
     // Placeholder token for error recovery.
-    Error,
+    ErrorExpr,
 }
 
 peg::parser!(grammar pegparser(context: &RefCell<ParseContext>) for str {
@@ -82,60 +83,113 @@ peg::parser!(grammar pegparser(context: &RefCell<ParseContext>) for str {
     use Token::*;
     use Expression::*;
 
+    // The alternative branch is actually uncecessary when we introduce statements.
+    // Expressions have no clear boundary with the only exception GroupingExpression.
     pub rule expression() -> Expression
-        = _ e:expression_precedence('\n') _ { e }
+        = valid_expression()
+        / pos:position!() (!valid_expression() token())+ {
+            context.borrow_mut().report("expected expression", pos);
+            ErrorExpr
+        }
 
-    rule expression_precedence(boundary: char) -> Expression = precedence! {
+    rule valid_expression() -> Expression = precedence! {
         // Equality expressions
-        x:(@) _ "==" _ y:@ { Binary(Box::new(x), EqualEqual, Box::new(y)) }
-        x:(@) _ "!=" _ y:@ { Binary(Box::new(x), NotEqual, Box::new(y)) }
-
+        x:(@) op:equality_op() y:@ { Binary(Box::new(x), op, Box::new(y)) }
         -- // Comparison expressions
-        x:(@) _ ">=" _ y:@ { Binary(Box::new(x), GreaterEqual, Box::new(y)) }
-        x:(@) _ "<=" _ y:@ { Binary(Box::new(x), LessEqual, Box::new(y)) }
-        x:(@) _ ">" _ y:@ { Binary(Box::new(x), Greater, Box::new(y)) }
-        x:(@) _ "<" _ y:@ { Binary(Box::new(x), Less, Box::new(y)) }
-
+        x:(@) op:comparison_op() y:@ { Binary(Box::new(x), op, Box::new(y)) }
         -- // Term expressions
-        x:(@) _ "+" _ y:@ { Binary(Box::new(x), Plus, Box::new(y)) }
-        x:(@) _ "-" _ y:@ { Binary(Box::new(x), Minus, Box::new(y)) }
-
+        x:(@) op:term_op() y:@ { Binary(Box::new(x), op, Box::new(y)) }
         -- // Factor expressions
-        x:(@) _ "*" _ y:@ { Binary(Box::new(x), Star, Box::new(y)) }
-        x:(@) _ "/" _ y:@ { Binary(Box::new(x), Slash, Box::new(y)) }
-
+        x:(@) op:factor_op() y:@ { Binary(Box::new(x), op, Box::new(y)) }
         -- // Unary expressions
-        "-" _ e:(@) { Unary(Minus, Box::new(e)) }
-        "!" _ e:(@) { Unary(Bang, Box::new(e)) }
+        op:unary_op() e:(@) { Unary(op, Box::new(e)) }
 
         -- // Primary expressions.
-        l:literal() { Literal(l) }                     // Literal
-        "(" _ e:expression_precedence(')') _ ")" { e } // Grouping
+        l:literal() { Literal(l) }                                        // Literal
+        left_parenthesis() e:valid_expression() right_parenthesis() { e } // Grouping
 
-        // Error token until the expression boundary.
-        pos:position!() s:$([c if c != boundary]+) {
-            context.borrow_mut().report(format!("unrecognized token {}", s), pos);
-            Expression::Error
+        // Error recovery within GroupingExpression.
+        left_parenthesis() pos:position!() (!right_parenthesis() token())+ right_parenthesis() {
+            context.borrow_mut().report("expected expression", pos);
+            ErrorExpr
         }
     }
 
+    // ========================== Scanner part ==========================
+    // ------------ the token rule mainly for error recovery ------------
+    // Token is self-delimited. That allows a possible error recovery.
+    rule token() -> Token
+        = valid_token()
+        / _ pos:position!() s:$((!valid_token() [_])+) _ {
+            context.borrow_mut().report(format!("invalid token {}", s.trim()), pos);
+            ErrorToken
+        }
+
+    rule valid_token() -> Token
+        = literal()
+        / binary_op()
+        / unary_op()
+        / left_parenthesis()
+        / right_parenthesis()
+
+    // --------------------- parser-preferred rules ---------------------
     rule literal() -> Token
-        = pos:position!() s:$(numeric()+ ("." numeric()+)?) {
+        = _ pos:position!() s:$(numeric()+ ("." numeric()+)?) _ {
             match f64::from_str(s) {
                 Ok(n)  => Number(n),
                 Err(_) => {
                     context.borrow_mut().report(format!("invalid number {}", s), pos);
-                    Token::Error
+                    ErrorToken
                 }
             }
         }
-        / "true"  { True }
-        / "false" { False }
-        / "nil"   { Nil }
+        / true_()
+        / false_()
+        / nil()
+    rule binary_op() -> Token
+        = equality_op()
+        / comparison_op()
+        / term_op()
+        / factor_op()
+    rule unary_op() -> Token = minus() / bang()
 
-    rule _ = [' ' | '\t' | '\r' | '\n']*
+    // BinaryOp helper rules.
+    rule equality_op() -> Token
+        = equal_equal()
+        / bang_equal()
+    rule comparison_op() -> Token
+        = greater_equal()
+        / less_equal()
+        / greater()
+        / less()
+    rule term_op()   -> Token = plus() / minus()
+    rule factor_op() -> Token = star() / slash()
 
-    // Helper rules
+
+    // ------------------- literal-string rules -------------------
+    rule equal_equal()   -> Token = _ "==" _ { EqualEqual }
+    rule bang_equal()    -> Token = _ "!=" _ { BangEqual }
+    rule greater_equal() -> Token = _ ">=" _ { GreaterEqual }
+    rule less_equal()    -> Token = _ "<=" _ { LessEqual }
+    rule greater() -> Token = _ ">" _ { Greater }
+    rule less()    -> Token = _ "<" _ { Less }
+    rule plus()    -> Token = _ "+" _ { Plus }
+    rule minus()   -> Token = _ "-" _ { Minus }
+    rule star()    -> Token = _ "*" _ { Star }
+    rule slash()   -> Token = _ "/" _ { Slash }
+    rule bang()    -> Token = _ "!" _ { Bang }
+    rule left_parenthesis()  -> Token = _ "(" _ { LeftParenthesis }
+    rule right_parenthesis() -> Token = _ ")" _ { RightParenthesis }
+
+    rule true_()  -> Token = _ "true"  _ { True }
+    rule false_() -> Token = _ "false" _ { False }
+    rule nil()    -> Token = _ "nil"   _ { Nil }
+
+    rule _ = blank()* comment()? blank()*
+    rule blank() = [' ' | '\t' | '\r' | '\n']
+    rule comment() = "//" [^'\n']*
+
+    // Helper range rules
     rule alpha()        = ['a'..='z' | 'A'..='Z' | '_']
     rule numeric()      = ['0'..='9']
     rule alphanumeric() = ['a'..='z' | 'A'..='Z' | '_' | '0'..='9']

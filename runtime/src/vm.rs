@@ -3,10 +3,11 @@ use shared::{
     error::{InterpretError, InterpretResult},
 };
 
-use crate::value::Value;
+use crate::{object::Object, value::Value};
 
-use self::stack::Stack;
+use self::{heap::Heap, stack::Stack};
 
+mod heap;
 mod stack;
 
 const STACK_CAPACITY: usize = u8::MAX as usize + 1;
@@ -15,6 +16,7 @@ pub struct VirtualMachine {
     chunk: Option<Chunk>,
     offset: usize,
     stack: Stack<Value, STACK_CAPACITY>,
+    heap: Heap<Object>,
 }
 
 impl VirtualMachine {
@@ -23,6 +25,7 @@ impl VirtualMachine {
             chunk: None,
             offset: 0,
             stack: Stack::new(),
+            heap: Heap::new(),
         }
     }
 
