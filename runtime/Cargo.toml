@@ -8,3 +8,4 @@ authors.workspace = true
 
 [dependencies]
 shared = { path = "../shared" }
+codespan-reporting = "0.11.1"

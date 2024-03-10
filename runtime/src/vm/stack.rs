@@ -4,7 +4,7 @@ use std::{
     ptr,
 };
 
-use shared::error::{InterpretError, InterpretResult};
+use codespan_reporting::diagnostic::Diagnostic;
 
 pub struct Stack<T, const N: usize> {
     data: [ManuallyDrop<T>; N],
@@ -19,9 +19,11 @@ impl<T, const N: usize> Stack<T, N> {
         }
     }
 
-    pub fn push(&mut self, value: T) -> InterpretResult {
+    pub fn push(&mut self, value: T) -> Result<(), Diagnostic<usize>> {
         if self.top >= N {
-            return Err(InterpretError::RuntimeError("Stack overflow!".into()));
+            return Err(Diagnostic::error()
+                .with_code("E1001")
+                .with_message("stack overflow"));
         }
         unsafe {
             ptr::write(&mut self.data[self.top], ManuallyDrop::new(value));
@@ -30,9 +32,11 @@ impl<T, const N: usize> Stack<T, N> {
         Ok(())
     }
 
-    pub fn pop(&mut self) -> InterpretResult<T> {
+    pub fn pop(&mut self) -> Result<T, Diagnostic<usize>> {
         if self.is_empty() {
-            return Err(InterpretError::RuntimeError("Stack underflow!".into()));
+            return Err(Diagnostic::error()
+                .with_code("E1002")
+                .with_message("stack underflow"));
         }
         self.top -= 1;
         let slot = unsafe { ptr::read(&mut self.data[self.top]) };

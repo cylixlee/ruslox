@@ -1,7 +1,6 @@
-use crate::{
-    constant::Constant,
-    error::{InterpretError, InterpretResult},
-};
+use codespan_reporting::diagnostic::Diagnostic;
+
+use crate::constant::Constant;
 
 #[rustfmt::skip]
 pub enum Instruction {
@@ -38,12 +37,11 @@ impl Chunk {
         self.code.push(instruction);
     }
 
-    pub fn add_constant(&mut self, value: Constant) -> InterpretResult<u8> {
+    pub fn add_constant(&mut self, value: Constant) -> Result<u8, Diagnostic<usize>> {
         if self.constants.len() >= u8::MAX as usize + 1 {
-            return Err(InterpretError::CompileError(
-                "Too many constants in one chunk.".into(),
-                None,
-            ));
+            return Err(Diagnostic::error()
+                .with_code("E0001")
+                .with_message("too many constants in one chunk"));
         }
         self.constants.push(value);
         Ok((self.constants.len() - 1) as u8)

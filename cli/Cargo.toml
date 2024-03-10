@@ -10,3 +10,4 @@ authors.workspace = true
 shared = { path = "../shared" }
 runtime = { path = "../runtime" }
 compiler = { path = "../compiler" }
+codespan-reporting = "0.11.1"

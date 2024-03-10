@@ -1,13 +1,10 @@
-use shared::{
-    chunk::{Chunk, Instruction},
-    error::{InterpretError, InterpretResult},
-};
+use codespan_reporting::diagnostic::Diagnostic;
+use shared::chunk::{Chunk, Instruction};
 
-use crate::{object::Object, value::Value};
+use crate::value::Value;
 
-use self::{heap::Heap, stack::Stack};
+use self::stack::Stack;
 
-mod heap;
 mod stack;
 
 const STACK_CAPACITY: usize = u8::MAX as usize + 1;
@@ -16,7 +13,6 @@ pub struct VirtualMachine {
     chunk: Option<Chunk>,
     offset: usize,
     stack: Stack<Value, STACK_CAPACITY>,
-    heap: Heap<Object>,
 }
 
 impl VirtualMachine {
@@ -25,11 +21,10 @@ impl VirtualMachine {
             chunk: None,
             offset: 0,
             stack: Stack::new(),
-            heap: Heap::new(),
         }
     }
 
-    pub fn interpret(&mut self, chunk: Chunk) -> InterpretResult {
+    pub fn interpret(&mut self, chunk: Chunk) -> Result<(), Diagnostic<usize>> {
         self.chunk = Some(chunk);
         self.offset = 0;
         self.run()
@@ -39,7 +34,7 @@ impl VirtualMachine {
         self.stack.clear();
     }
 
-    fn run(&mut self) -> InterpretResult {
+    fn run(&mut self) -> Result<(), Diagnostic<usize>> {
         macro_rules! arithmetic {
             ($operator:tt, $typ:ident) => {{
                 let right = self.stack.pop()?;
@@ -51,9 +46,9 @@ impl VirtualMachine {
                     }
 
                     _ => {
-                        return Err(InterpretError::RuntimeError(
-                            "operand must be numbers.".into()
-                        ));
+                        return Err(Diagnostic::error()
+                            .with_code("E1003")
+                            .with_message("operands must be numbers"));
                     }
                 }
             }};
@@ -100,9 +95,9 @@ impl VirtualMachine {
                 Instruction::Negate => match self.stack.pop()? {
                     Value::Number(number) => self.stack.push(Value::Number(-number))?,
                     _ => {
-                        return Err(InterpretError::RuntimeError(
-                            "operand must be a number.".into(),
-                        ))
+                        return Err(Diagnostic::error()
+                            .with_code("E1004")
+                            .with_message("operand must be number"));
                     }
                 },
 
