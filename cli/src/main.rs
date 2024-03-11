@@ -9,6 +9,7 @@ use codespan_reporting::{
     term::{
         self,
         termcolor::{ColorChoice, StandardStream},
+        Config,
     },
 };
 use runtime::vm::VirtualMachine;
@@ -58,7 +59,7 @@ fn run(vm: &mut VirtualMachine, source: impl AsRef<str>, filename: impl AsRef<st
     let file_id = files.add(filename.as_ref(), source.as_ref());
     let stream = StandardStream::stderr(ColorChoice::Always);
     let stream = &mut stream.lock();
-    let config = Default::default();
+    let config = Config::default();
 
     match compiler::compile(file_id, source.as_ref()) {
         Err(diagnostics) => {

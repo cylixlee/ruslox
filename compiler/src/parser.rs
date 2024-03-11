@@ -29,19 +29,41 @@ impl Parser {
 
 peg::parser!(grammar pegparser(chunk: &RefCell<Chunk>, parser: &RefCell<Parser>) for ScannedContext {
     pub rule expression() = precedence! {
+        // Equality
+        (@) [Token::EqualEqual] @ { emit(chunk, Instruction::Equal) }
+        (@) [Token::BangEqual] @ {
+            emit(chunk, Instruction::Equal);
+            emit(chunk, Instruction::Not);
+        }
+        -- // Comparison
+        (@) [Token::Greater] @ { emit(chunk, Instruction::Greater) }
+        (@) [Token::Less]    @ { emit(chunk, Instruction::Less) }
+        (@) [Token::GreaterEqual] @ {
+            emit(chunk, Instruction::Less);
+            emit(chunk, Instruction::Not);
+        }
+        (@) [Token::LessEqual] @ {
+            emit(chunk, Instruction::Greater);
+            emit(chunk, Instruction::Not);
+        }
+        -- // Term
         (@) [Token::Plus]  @ { emit(chunk, Instruction::Add) }
         (@) [Token::Minus] @ { emit(chunk, Instruction::Subtract) }
-        --
+        -- // Factor
         (@) [Token::Star]  @ { emit(chunk, Instruction::Multiply) }
         (@) [Token::Slash] @ { emit(chunk, Instruction::Divide) }
-        --
+        -- // Unary
         [Token::Minus] (@) { emit(chunk, Instruction::Negate) }
-        --
+        [Token::Bang]  (@) { emit(chunk, Instruction::Not) }
+        -- // Primary
         [Token::Number(n)] {
             if let Err(diagnostic) = emit_constant(chunk, Constant::Number(*n)) {
                 report(parser, diagnostic);
             }
         }
+        [Token::True]  { emit(chunk, Instruction::True) }
+        [Token::False] { emit(chunk, Instruction::False) }
+        [Token::Nil]   { emit(chunk, Instruction::Nil) }
         [Token::LeftParenthesis] expression() [Token::RightParenthesis] {}
     }
 });
