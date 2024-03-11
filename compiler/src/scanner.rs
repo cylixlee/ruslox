@@ -1,10 +1,11 @@
-use std::ops::Range;
+use std::fmt::Display;
 
 use codespan_reporting::diagnostic::{Diagnostic, Label};
+use peg::{Parse, ParseElem};
 
 #[rustfmt::skip]
 #[derive(Debug)]
-pub enum Token {
+pub(crate) enum Token {
     // Single character tokens.
     LeftParenthesis, RightParenthesis, LeftBrace, RightBrace,
     Comma, Dot, Minus, Plus, Semicolon, Slash, Star,
@@ -24,9 +25,21 @@ pub enum Token {
     Error,
 }
 
-pub struct ScannedContext {
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct TokenPosition {
+    pub start: usize,
+    pub end: usize,
+}
+
+impl Display for TokenPosition {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "({}..{})", self.start, self.end)
+    }
+}
+
+pub(crate) struct ScannedContext {
     pub tokens: Vec<Token>,
-    pub ranges: Vec<Range<usize>>,
+    pub positions: Vec<TokenPosition>,
     pub diagnostics: Vec<Diagnostic<usize>>,
 }
 
@@ -34,38 +47,60 @@ impl ScannedContext {
     fn new() -> Self {
         Self {
             tokens: Vec::new(),
-            ranges: Vec::new(),
+            positions: Vec::new(),
             diagnostics: Vec::new(),
         }
     }
 
-    fn record(&mut self, range: Range<usize>) {
-        self.ranges.push(range);
+    fn record(&mut self, token: Token, start: usize, end: usize) {
+        self.tokens.push(token);
+        self.positions.push(TokenPosition { start, end });
     }
 
     fn report(&mut self, diagnostic: Diagnostic<usize>) {
         self.diagnostics.push(diagnostic);
     }
+}
 
-    fn complete(mut self, tokens: Vec<Token>) -> Self {
-        self.tokens = tokens;
-        self
+impl Parse for ScannedContext {
+    type PositionRepr = TokenPosition;
+
+    fn start<'input>(&'input self) -> usize {
+        0
+    }
+
+    fn is_eof<'input>(&'input self, p: usize) -> bool {
+        p >= self.tokens.len()
+    }
+
+    fn position_repr<'input>(&'input self, p: usize) -> Self::PositionRepr {
+        self.positions[p]
+    }
+}
+
+impl<'a> ParseElem<'a> for ScannedContext {
+    type Element = &'a Token;
+
+    fn parse_elem(&'a self, pos: usize) -> peg::RuleResult<Self::Element> {
+        if pos < self.tokens.len() {
+            peg::RuleResult::Matched(pos + 1, &self.tokens[pos])
+        } else {
+            peg::RuleResult::Failed
+        }
     }
 }
 
 peg::parser!(grammar pegscanner(file_id: usize, context: &mut ScannedContext) for str {
     use Token::*;
 
-    pub rule scan() -> Vec<Token>
-        = _ ts:(token()**_) _ { ts }
+    pub rule scan() = _ token()**_ _
 
-    rule token() -> Token
+    rule token()
         = start:position!() t:recognized_token() end:position!() {
-            context.record(start..end);
-            t
+            context.record(t, start, end);
         }
         / start:position!() [_] {
-            context.record(start..start + 1);
+            context.record(Error, start, start + 1);
             context.report(Diagnostic::error()
                 .with_code("E0002")
                 .with_message("unexpected character")
@@ -74,7 +109,6 @@ peg::parser!(grammar pegscanner(file_id: usize, context: &mut ScannedContext) fo
                         .with_message("this character is beyond Lox's syntax rule.")
                 ])
             );
-            Error
         }
 
     rule recognized_token() -> Token
@@ -170,8 +204,8 @@ peg::parser!(grammar pegscanner(file_id: usize, context: &mut ScannedContext) fo
     rule comment() = "//" [^'\n']*
 });
 
-pub fn scan<'a>(file_id: usize, input: &'a str) -> ScannedContext {
+pub(crate) fn scan<'a>(file_id: usize, input: &'a str) -> ScannedContext {
     let mut context = ScannedContext::new();
-    let tokens = pegscanner::scan(input, file_id, &mut context).expect("internal scan error.");
-    context.complete(tokens)
+    pegscanner::scan(input, file_id, &mut context).expect("internal scan error.");
+    context
 }

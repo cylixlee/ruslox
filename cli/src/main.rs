@@ -4,6 +4,13 @@ use std::{
     path::Path,
 };
 
+use codespan_reporting::{
+    files::SimpleFiles,
+    term::{
+        self,
+        termcolor::{ColorChoice, StandardStream},
+    },
+};
 use runtime::vm::VirtualMachine;
 
 const REPL_SIGN: &str = ">>";
@@ -45,21 +52,26 @@ fn run_file(vm: &mut VirtualMachine, path: impl AsRef<Path>) -> io::Result<()> {
     Ok(())
 }
 
-fn run(_vm: &mut VirtualMachine, _source: impl AsRef<str>, _filename: impl AsRef<str>) {
-    // let mut files = SimpleFiles::new();
-    // let file_id = files.add(filename.as_ref(), source.as_ref());
+fn run(vm: &mut VirtualMachine, source: impl AsRef<str>, filename: impl AsRef<str>) {
+    // codespan-reporting environments.
+    let mut files = SimpleFiles::new();
+    let file_id = files.add(filename.as_ref(), source.as_ref());
+    let stream = StandardStream::stderr(ColorChoice::Always);
+    let stream = &mut stream.lock();
+    let config = Default::default();
 
-    // let scanned = compiler_peg::scan(file_id, source.as_ref());
-    // for (token, range) in scanned.tokens.iter().zip(scanned.ranges.iter()) {
-    //     println!("{:?} {:?}", token, range);
-    // }
-
-    // if !scanned.diagnostics.is_empty() {
-    //     let stream = StandardStream::stderr(ColorChoice::Always);
-    //     let stream = &mut stream.lock();
-    //     let config = Default::default();
-    //     for diagnostic in &scanned.diagnostics {
-    //         term::emit(stream, &config, &files, diagnostic).expect("internal diagnostic error");
-    //     }
-    // }
+    match compiler::compile(file_id, source.as_ref()) {
+        Err(diagnostics) => {
+            for diagnostic in &diagnostics {
+                term::emit(stream, &config, &files, diagnostic)
+                    .expect("internal diagnostic error after compilation");
+            }
+        }
+        Ok(chunk) => {
+            if let Err(diagnostic) = vm.interpret(chunk) {
+                term::emit(stream, &config, &files, &diagnostic)
+                    .expect("internal diagnostic error during interpretation");
+            }
+        }
+    }
 }
