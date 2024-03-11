@@ -53,15 +53,20 @@ fn run_file(vm: &mut VirtualMachine, path: impl AsRef<Path>) -> io::Result<()> {
 }
 
 fn run(_vm: &mut VirtualMachine, source: impl AsRef<str>, filename: impl AsRef<str>) {
-    let mut files = SimpleFiles::new();
-    let file_id = files.add(filename.as_ref(), source.as_ref());
-    let source = source.as_ref().chars().collect();
-    if let Err(errors) = compiler::compile(&source, file_id) {
-        let stream = StandardStream::stderr(ColorChoice::Always);
-        let stream = &mut stream.lock();
-        let config = Default::default();
-        for error in &errors {
-            term::emit(stream, &config, &files, error).expect("internal diagnostic error");
-        }
-    }
+    // let mut files = SimpleFiles::new();
+    // let file_id = files.add(filename.as_ref(), source.as_ref());
+
+    // let scanned = compiler_peg::scan(file_id, source.as_ref());
+    // for (token, range) in scanned.tokens.iter().zip(scanned.ranges.iter()) {
+    //     println!("{:?} {:?}", token, range);
+    // }
+
+    // if !scanned.diagnostics.is_empty() {
+    //     let stream = StandardStream::stderr(ColorChoice::Always);
+    //     let stream = &mut stream.lock();
+    //     let config = Default::default();
+    //     for diagnostic in &scanned.diagnostics {
+    //         term::emit(stream, &config, &files, diagnostic).expect("internal diagnostic error");
+    //     }
+    // }
 }

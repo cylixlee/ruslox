@@ -1,7 +1,7 @@
 use codespan_reporting::diagnostic::Diagnostic;
 use scanner::Scanner;
 
-mod compiler;
+mod parser;
 mod scanner;
 
 pub fn compile(source: &Vec<char>, file_id: usize) -> Result<(), Vec<Diagnostic<usize>>> {

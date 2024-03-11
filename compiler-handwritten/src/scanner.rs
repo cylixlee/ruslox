@@ -1,3 +1,5 @@
+use std::ops::Range;
+
 use codespan_reporting::diagnostic::{Diagnostic, Label};
 use phf::phf_map;
 
@@ -63,39 +65,45 @@ impl<'a> Scanner<'a> {
         self.current >= self.source.len()
     }
 
-    pub fn scan(&mut self) -> Result<Token, Diagnostic<usize>> {
+    pub fn scan(&mut self) -> Result<(Token, Range<usize>), Diagnostic<usize>> {
+        macro_rules! positioned {
+            ($e:expr) => {
+                Ok(($e, self.start..self.current))
+            };
+        }
+
         self.skip_whitespace();
         self.start = self.current;
 
         let prefix = self.advance();
         if prefix.is_none() {
-            return Ok(Token::EndOfFile);
+            return positioned!(Token::EndOfFile);
         }
 
         let prefix = prefix.unwrap();
         match prefix {
             // Single character tokens.
-            '(' => Ok(Token::LeftParenthesis),
-            ')' => Ok(Token::RightParenthesis),
-            '{' => Ok(Token::LeftBrace),
-            '}' => Ok(Token::RightBrace),
-            ';' => Ok(Token::Semicolon),
-            ',' => Ok(Token::Comma),
-            '.' => Ok(Token::Dot),
-            '-' => Ok(Token::Minus),
-            '+' => Ok(Token::Plus),
-            '/' => Ok(Token::Slash),
-            '*' => Ok(Token::Star),
+            '(' => positioned!(Token::LeftParenthesis),
+            ')' => positioned!(Token::RightParenthesis),
+            '{' => positioned!(Token::LeftBrace),
+            '}' => positioned!(Token::RightBrace),
+            ';' => positioned!(Token::Semicolon),
+            ',' => positioned!(Token::Comma),
+            '.' => positioned!(Token::Dot),
+            '-' => positioned!(Token::Minus),
+            '+' => positioned!(Token::Plus),
+            '/' => positioned!(Token::Slash),
+            '*' => positioned!(Token::Star),
 
             // One or two character tokens.
-            '!' if self.try_consume('=') => Ok(Token::BangEqual),
-            '=' if self.try_consume('=') => Ok(Token::EqualEqual),
-            '<' if self.try_consume('=') => Ok(Token::LessEqual),
-            '>' if self.try_consume('=') => Ok(Token::GreaterEqual),
-            '!' => Ok(Token::Bang),
-            '=' => Ok(Token::Equal),
-            '<' => Ok(Token::Less),
-            '>' => Ok(Token::Greater),
+            '!' if self.try_consume('=') => positioned!(Token::BangEqual),
+            '=' if self.try_consume('=') => positioned!(Token::EqualEqual),
+            '<' if self.try_consume('=') => positioned!(Token::LessEqual),
+            '>' if self.try_consume('=') => positioned!(Token::GreaterEqual),
+            '!' => positioned!(Token::Bang),
+            '=' => positioned!(Token::Equal),
+            '<' => positioned!(Token::Less),
+            '>' => positioned!(Token::Greater),
 
             // Literals.
             '"' => self.scan_string(),
@@ -111,7 +119,8 @@ impl<'a> Scanner<'a> {
         }
     }
 
-    fn scan_identifier(&mut self) -> Token {
+    // This function will never fail. It's an identifier with at least 1 valid character.
+    fn scan_identifier(&mut self) -> (Token, Range<usize>) {
         while let Some(peek) = self.peek() {
             if !peek.is_ascii_alphanumeric() && peek != '_' {
                 break;
@@ -120,12 +129,12 @@ impl<'a> Scanner<'a> {
         }
         let lexeme: String = (&self.source[self.start..self.current]).iter().collect();
         if let Some(keyword) = KEYWORDS.get(&lexeme) {
-            return keyword.clone();
+            return (keyword.clone(), self.start..self.current);
         }
-        Token::Identifier(lexeme)
+        (Token::Identifier(lexeme), self.start..self.current)
     }
 
-    fn scan_number(&mut self) -> Result<Token, Diagnostic<usize>> {
+    fn scan_number(&mut self) -> Result<(Token, Range<usize>), Diagnostic<usize>> {
         while let Some(peek) = self.peek() {
             if !peek.is_ascii_digit() {
                 break;
@@ -147,7 +156,7 @@ impl<'a> Scanner<'a> {
 
         let lexeme: String = (&self.source[self.start..self.current]).iter().collect();
         match lexeme.parse::<f64>() {
-            Ok(number) => Ok(Token::Number(number)),
+            Ok(number) => Ok((Token::Number(number), self.start..self.current)),
             Err(_) => Err(Diagnostic::error()
                 .with_code("E0003")
                 .with_message("uninterpretable number literal")
@@ -158,7 +167,7 @@ impl<'a> Scanner<'a> {
         }
     }
 
-    fn scan_string(&mut self) -> Result<Token, Diagnostic<usize>> {
+    fn scan_string(&mut self) -> Result<(Token, Range<usize>), Diagnostic<usize>> {
         let mut terminated = false;
         let mut lexeme = String::new();
         while let Some(character) = self.advance() {
@@ -180,7 +189,7 @@ impl<'a> Scanner<'a> {
                 .with_message("the string literal started here does not end")])
                 .with_notes(vec!["did you forget the ending double-quote?".into()]));
         }
-        Ok(Token::String(lexeme))
+        Ok((Token::String(lexeme), self.start..self.current))
     }
 
     fn skip_whitespace(&mut self) {

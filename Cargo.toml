@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["cli", "compiler", "runtime", "shared"]
+members = ["cli", "compiler-handwritten", "compiler-peg", "runtime", "shared"]
 
 [workspace.package]
 version = "0.1.0"
