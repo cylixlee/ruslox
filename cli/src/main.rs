@@ -4,13 +4,6 @@ use std::{
     path::Path,
 };
 
-use codespan_reporting::{
-    files::SimpleFiles,
-    term::{
-        self,
-        termcolor::{ColorChoice, StandardStream},
-    },
-};
 use runtime::vm::VirtualMachine;
 
 const REPL_SIGN: &str = ">>";
@@ -52,7 +45,7 @@ fn run_file(vm: &mut VirtualMachine, path: impl AsRef<Path>) -> io::Result<()> {
     Ok(())
 }
 
-fn run(_vm: &mut VirtualMachine, source: impl AsRef<str>, filename: impl AsRef<str>) {
+fn run(_vm: &mut VirtualMachine, _source: impl AsRef<str>, _filename: impl AsRef<str>) {
     // let mut files = SimpleFiles::new();
     // let file_id = files.add(filename.as_ref(), source.as_ref());
 

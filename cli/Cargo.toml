@@ -13,6 +13,5 @@ path = "src/main.rs"
 [dependencies]
 shared = { path = "../shared" }
 runtime = { path = "../runtime" }
-# compiler = { path = "../compiler" }
-compiler-peg = { path = "../compiler-peg" }
+compiler = { path = "../compiler" }
 codespan-reporting = "0.11.1"

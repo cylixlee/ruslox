@@ -1,1 +1,14 @@
-e
+// This file is intended to test scanner.
+// It's not a valid Lox program.
+
+fun hello(world) {
+    return "go to hell";
+}
+
+114.514.1919.810// . another thing
+? // error token
+// and should continue to parse
+class GoodThing {}
+
+"unterminated string here
+should be reported.
