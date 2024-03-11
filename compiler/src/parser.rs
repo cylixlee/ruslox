@@ -61,6 +61,11 @@ peg::parser!(grammar pegparser(chunk: &RefCell<Chunk>, parser: &RefCell<Parser>)
                 report(parser, diagnostic);
             }
         }
+        [Token::String(s)] {
+            if let Err(diagnostic) = emit_constant(chunk, Constant::String(s.clone())) {
+                report(parser, diagnostic);
+            }
+        }
         [Token::True]  { emit(chunk, Instruction::True) }
         [Token::False] { emit(chunk, Instruction::False) }
         [Token::Nil]   { emit(chunk, Instruction::Nil) }
