@@ -28,19 +28,19 @@ impl Parser {
 }
 
 #[rustfmt::skip]
-enum Expression {
+enum Expression<'a> {
     // Literal expressions. Since we've known their types at parsing time, we don't have
     // to store [`Token`] and match its type later.
-    String(String), Number(f64), Identifier(String), True, False, Nil,
+    String(&'a String), Number(f64), Identifier(&'a String), True, False, Nil,
 
-    Unary(Token, Box<Expression>),
-    Binary(Box<Expression>, Token, Box<Expression>),
+    Unary(&'a Token, Box<Expression<'a>>),
+    Binary(Box<Expression<'a>>, &'a Token, Box<Expression<'a>>),
 }
 
-enum Statement {
-    VarDeclaration(String, Option<Box<Expression>>),
-    Print(Box<Expression>),
-    Expressional(Box<Expression>),
+enum Statement<'a> {
+    VarDeclaration(&'a String, Option<Box<Expression<'a>>>),
+    Print(Box<Expression<'a>>),
+    Expressional(Box<Expression<'a>>),
 
     // Special variant for error recovery.
     Error,
@@ -48,10 +48,10 @@ enum Statement {
 
 peg::parser!(grammar pegparser(file_id: usize, ranges: &Vec<Range<usize>>, parser: &RefCell<Parser>) for ScannedContext {
 
-    pub rule declarations() -> Vec<Statement>
+    pub rule declarations() -> Vec<Statement<'input>>
         = declaration()*
 
-    rule declaration() -> Statement
+    rule declaration() -> Statement<'input>
         = recognized_declaration()
         / recognized_statement()
         / pos:position!() ![Token::Semicolon] [_]+ [Token::Semicolon]? {
@@ -67,10 +67,10 @@ peg::parser!(grammar pegparser(file_id: usize, ranges: &Vec<Range<usize>>, parse
             Statement::Error
         }
 
-    rule recognized_declaration() -> Statement
+    rule recognized_declaration() -> Statement<'input>
         = var_declaration()
 
-    rule var_declaration() -> Statement
+    rule var_declaration() -> Statement<'input>
         = [Token::Var] name:variable_name() [Token::Equal] init:expression() must_consume(Token::Semicolon) {
             match name {
                 Some(name) => Statement::VarDeclaration(name, Some(Box::new(init))),
@@ -84,8 +84,8 @@ peg::parser!(grammar pegparser(file_id: usize, ranges: &Vec<Range<usize>>, parse
             }
         }
 
-    rule variable_name() -> Option<String>
-        = [Token::Identifier(identifier)] { Some(identifier.clone()) }
+    rule variable_name() -> Option<&'input String>
+        = [Token::Identifier(identifier)] { Some(identifier) }
         / pos:position!() {
             parser.borrow_mut().report(Diagnostic::error()
                 .with_code("E0007")
@@ -98,7 +98,7 @@ peg::parser!(grammar pegparser(file_id: usize, ranges: &Vec<Range<usize>>, parse
             None
         }
 
-    rule recognized_statement() -> Statement
+    rule recognized_statement() -> Statement<'input>
         = [Token::Print] e:expression() must_consume(Token::Semicolon) {
             Statement::Print(Box::new(e))
         }
@@ -118,25 +118,25 @@ peg::parser!(grammar pegparser(file_id: usize, ranges: &Vec<Range<usize>>, parse
             );
         }
 
-    rule expression() -> Expression = precedence! {
+    rule expression() -> Expression<'input> = precedence! {
         // Assignment
-        x:@ op:[Token::Equal] y:(@) { Expression::Binary(Box::new(x), op.clone(), Box::new(y)) }
+        x:@ op:[Token::Equal] y:(@) { Expression::Binary(Box::new(x), op, Box::new(y)) }
         -- // Equality
-        x:(@) op:[Token::EqualEqual | Token::BangEqual] y:@ { Expression::Binary(Box::new(x), op.clone(), Box::new(y)) }
+        x:(@) op:[Token::EqualEqual | Token::BangEqual] y:@ { Expression::Binary(Box::new(x), op, Box::new(y)) }
         -- // Comparison
         x:(@) op:[Token::Greater | Token::Less | Token::GreaterEqual | Token::LessEqual] y:@ {
-            Expression::Binary(Box::new(x), op.clone(), Box::new(y))
+            Expression::Binary(Box::new(x), op, Box::new(y))
         }
         -- // Term
-        x:(@) op:[Token::Plus| Token::Minus] y:@ { Expression::Binary(Box::new(x), op.clone(), Box::new(y)) }
+        x:(@) op:[Token::Plus| Token::Minus] y:@ { Expression::Binary(Box::new(x), op, Box::new(y)) }
         -- // Factor
-        x:(@) op:[Token::Star | Token::Slash] y:@ { Expression::Binary(Box::new(x), op.clone(), Box::new(y)) }
+        x:(@) op:[Token::Star | Token::Slash] y:@ { Expression::Binary(Box::new(x), op, Box::new(y)) }
         -- // Unary
-        op:[Token::Minus | Token::Bang] e:(@) { Expression::Unary(op.clone(), Box::new(e)) }
+        op:[Token::Minus | Token::Bang] e:(@) { Expression::Unary(op, Box::new(e)) }
         -- // Primary
         [Token::Number(n)] { Expression::Number(*n) }
-        [Token::String(s)] { Expression::String(s.clone()) }
-        [Token::Identifier(identifier)] { Expression::Identifier(identifier.clone()) }
+        [Token::String(s)] { Expression::String(s) }
+        [Token::Identifier(identifier)] { Expression::Identifier(identifier) }
         [Token::True]  { Expression::True }
         [Token::False] { Expression::False }
         [Token::Nil]   { Expression::Nil }
@@ -174,7 +174,7 @@ fn emit(chunk: &mut Chunk, declarations: &Vec<Statement>) -> Result<(), Diagnost
 fn emit_statement(chunk: &mut Chunk, statement: &Statement) -> Result<(), Diagnostic<usize>> {
     match statement {
         Statement::VarDeclaration(name, initializer) => {
-            let index = chunk.add_constant(Constant::String(name.clone()))?;
+            let index = chunk.add_constant(Constant::String((*name).clone()))?;
             match initializer {
                 Some(expression) => emit_expression(chunk, expression)?,
                 None => chunk.write(Instruction::Nil),
@@ -196,10 +196,10 @@ fn emit_statement(chunk: &mut Chunk, statement: &Statement) -> Result<(), Diagno
 
 fn emit_expression(chunk: &mut Chunk, expression: &Expression) -> Result<(), Diagnostic<usize>> {
     match expression {
-        Expression::String(string) => emit_constant(chunk, Constant::String(string.clone()))?,
+        Expression::String(string) => emit_constant(chunk, Constant::String((*string).clone()))?,
         Expression::Number(number) => emit_constant(chunk, Constant::Number(*number))?,
         Expression::Identifier(identifier) => {
-            let index = chunk.add_constant(Constant::String(identifier.clone()))?;
+            let index = chunk.add_constant(Constant::String((*identifier).clone()))?;
             chunk.write(Instruction::GetGlobal(index));
         }
         Expression::True => chunk.write(Instruction::True),
@@ -217,7 +217,7 @@ fn emit_expression(chunk: &mut Chunk, expression: &Expression) -> Result<(), Dia
             if let Token::Equal = operator {
                 match &**left {
                     Expression::Identifier(identifier) => {
-                        let index = chunk.add_constant(Constant::String(identifier.clone()))?;
+                        let index = chunk.add_constant(Constant::String((*identifier).clone()))?;
                         emit_expression(chunk, &right)?;
                         chunk.write(Instruction::SetGlobal(index));
                     }
