@@ -5,7 +5,7 @@ use peg::{Parse, ParseElem};
 
 #[rustfmt::skip]
 #[derive(Debug)]
-pub(crate) enum Token {
+pub enum Token {
     // Single character tokens.
     LeftParenthesis, RightParenthesis, LeftBrace, RightBrace,
     Comma, Dot, Minus, Plus, Semicolon, Slash, Star,
@@ -26,7 +26,7 @@ pub(crate) enum Token {
 }
 
 #[derive(Debug, Clone, Copy)]
-pub(crate) struct TokenPosition {
+pub struct TokenPosition {
     pub start: usize,
     pub end: usize,
 }
@@ -37,7 +37,7 @@ impl Display for TokenPosition {
     }
 }
 
-pub(crate) struct ScannedContext {
+pub struct ScannedContext {
     pub tokens: Vec<Token>,
     pub positions: Vec<TokenPosition>,
     pub diagnostics: Vec<Diagnostic<usize>>,
@@ -204,7 +204,7 @@ peg::parser!(grammar pegscanner(file_id: usize, context: &mut ScannedContext) fo
     rule comment() = "//" [^'\n']*
 });
 
-pub(crate) fn scan<'a>(file_id: usize, input: &'a str) -> ScannedContext {
+pub fn scan<'a>(file_id: usize, input: &'a str) -> ScannedContext {
     let mut context = ScannedContext::new();
     pegscanner::scan(input, file_id, &mut context).expect("internal scan error.");
     context

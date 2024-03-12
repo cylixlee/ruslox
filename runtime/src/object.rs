@@ -7,7 +7,7 @@ use std::{
 macro_rules! register_object {
     ($($objtype:ident), *) => {
         #[derive(Clone, Copy)]
-        pub(crate) enum ObjectType {
+        pub enum ObjectType {
             $($objtype, )*
         }
 
@@ -57,7 +57,7 @@ macro_rules! register_object {
 
 register_object!(String);
 
-pub(crate) struct ObjectMeta {
+pub struct ObjectMeta {
     pub typ: ObjectType,
 }
 
@@ -67,9 +67,9 @@ impl ObjectMeta {
     }
 }
 
-pub(crate) type StringObject = String;
+pub type StringObject = String;
 
-pub(crate) struct ManagedReference {
+pub struct ManagedReference {
     data: *mut (),
     meta: *mut ObjectMeta,
 }
@@ -111,15 +111,15 @@ impl PartialEq for ManagedReference {
 
 impl Eq for ManagedReference {}
 
-pub(crate) trait Downcast<T> {
+pub trait Downcast<T> {
     fn downcast(&self) -> Option<&T>;
     fn downcast_mut(&mut self) -> Option<&mut T>;
 }
 
-pub(crate) trait GarbageCollect {
+pub trait GarbageCollect {
     fn register(&mut self, reference: ManagedReference);
 }
 
-pub(crate) trait FromUnmanaged<T> {
+pub trait FromUnmanaged<T> {
     fn from_unmanaged<G: GarbageCollect>(value: T, gc: &mut G) -> Self;
 }

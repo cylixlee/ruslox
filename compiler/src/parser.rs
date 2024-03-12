@@ -73,7 +73,7 @@ peg::parser!(grammar pegparser(chunk: &RefCell<Chunk>, parser: &RefCell<Parser>)
     }
 });
 
-pub(crate) fn parse(scanned: &ScannedContext) -> Result<Chunk, Vec<Diagnostic<usize>>> {
+pub fn parse(scanned: &ScannedContext) -> Result<Chunk, Vec<Diagnostic<usize>>> {
     let chunk = RefCell::new(Chunk::new());
     let parser = RefCell::new(Parser::new());
     pegparser::expression(scanned, &chunk, &parser).expect("internal parse error");

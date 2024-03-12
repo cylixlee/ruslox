@@ -18,7 +18,7 @@ This project (vitual workspace) is divided into four main crates:
 3. **`runtime`**: VM and related object models.
 4. **`cli`**: Simply calling compiler and then pass compiled chunk to VM.
 
-Their dependency relation is like the graph below:
+Their dependency relation is described in the graph below:
 
 ```mermaid
 graph TD;

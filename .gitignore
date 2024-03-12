@@ -1,1 +1,5 @@
+# Rust compilation outputs.
 /target
+
+# Visual Studio Code configurations.
+/.vscode

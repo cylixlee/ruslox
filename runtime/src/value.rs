@@ -2,7 +2,7 @@ use std::fmt::Display;
 
 use crate::object::{Downcast, ManagedReference, ObjectType, StringObject};
 
-pub(crate) enum Value {
+pub enum Value {
     Nil,
     Number(f64),
     Boolean(bool),
@@ -16,10 +16,10 @@ impl Display for Value {
             Value::Number(number) => write!(f, "{}", number),
             Value::Boolean(boolean) => write!(f, "{}", boolean),
             Value::Object(reference) => match reference.typ {
-                ObjectType::String => {
-                    let string_object: &StringObject = reference.downcast().unwrap();
-                    write!(f, "{}", string_object)
-                }
+                // ObjectType::String => {
+                //     let string_object: &StringObject = reference.downcast().unwrap();
+                //     write!(f, "{}", string_object)
+                // }
                 #[allow(unreachable_patterns)]
                 _ => write!(f, "<object at {:#x}>", reference.ptr()),
             },

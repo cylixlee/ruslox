@@ -76,11 +76,13 @@ impl VirtualMachine {
         loop {
             #[cfg(debug_assertions)]
             {
-                print!("          ");
-                for i in 0..self.stack.len() {
-                    print!("[ {} ]", self.stack[i]);
+                if !self.stack.is_empty() {
+                    print!("          ");
+                    for i in 0..self.stack.len() {
+                        print!("[ {} ]", self.stack[i]);
+                    }
+                    println!();
                 }
-                println!();
                 chunk.disassemble_instruction(self.offset);
             }
 
@@ -90,13 +92,9 @@ impl VirtualMachine {
                     let constant = chunk.constants[*constant_index as usize].clone();
                     match constant {
                         Constant::Number(number) => self.stack.push(Value::Number(number))?,
-                        Constant::String(string) => {
-                            self.stack
-                                .push(Value::Object(ManagedReference::from_unmanaged(
-                                    string,
-                                    &mut self.heap,
-                                )))?
-                        }
+                        Constant::String(string) => self
+                            .stack
+                            .push(Value::Object(self.heap.manage_string(string)))?,
                     }
                 }
 
