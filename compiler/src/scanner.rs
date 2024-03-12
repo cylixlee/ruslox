@@ -85,9 +85,9 @@ impl ScannedContext {
         }
     }
 
-    fn record(&mut self, token: Token, start: usize, end: usize) {
+    fn record(&mut self, token: Token, range: Range<usize>) {
         self.tokens.push(token);
-        self.positions.push(start..end);
+        self.positions.push(range);
     }
 
     fn report(&mut self, diagnostic: Diagnostic<usize>) {
@@ -130,10 +130,10 @@ peg::parser!(grammar pegscanner(file_id: usize, context: &mut ScannedContext) fo
 
     rule token()
         = start:position!() t:recognized_token() end:position!() {
-            context.record(t, start, end);
+            context.record(t, start..end);
         }
         / start:position!() [_] {
-            context.record(Error, start, start + 1);
+            context.record(Error, start..start + 1);
             context.report(Diagnostic::error()
                 .with_code("E0002")
                 .with_message("unexpected character")

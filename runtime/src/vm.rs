@@ -152,7 +152,7 @@ impl VirtualMachine {
                                 .with_message("invalid name of global definition"))
                         }
                     };
-                    if self.globals.contains_key(&name) {
+                    if !self.globals.contains_key(&name) {
                         return Err(Diagnostic::error()
                             .with_code("E1008")
                             .with_message(format!("undefined global {}", name)));
@@ -166,7 +166,6 @@ impl VirtualMachine {
                         }
                     };
                     self.globals.insert(name, value);
-                    self.stack.pop()?; // We dont pop first then insert because of GC.
                 }
 
                 // Literal instructions.

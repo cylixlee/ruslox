@@ -27,11 +27,15 @@ impl Parser {
     }
 }
 
-#[rustfmt::skip]
 enum Expression<'a> {
     // Literal expressions. Since we've known their types at parsing time, we don't have
-    // to store [`Token`] and match its type later.
-    String(&'a String), Number(f64), Identifier(&'a String), True, False, Nil,
+    // to store Token and match its type later.
+    String(&'a String),
+    Number(f64),
+    Identifier(&'a String),
+    True,
+    False,
+    Nil,
 
     Unary(&'a Token, Box<Expression<'a>>),
     Binary(Box<Expression<'a>>, &'a Token, Box<Expression<'a>>),

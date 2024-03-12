@@ -67,6 +67,7 @@ fn run(vm: &mut VirtualMachine, source: impl AsRef<str>, filename: impl AsRef<st
                 term::emit(stream, &config, &files, diagnostic)
                     .expect("internal diagnostic error after compilation");
             }
+            vm.clear_stack();
         }
         Ok(chunk) => {
             if let Err(diagnostic) = vm.interpret(chunk) {
