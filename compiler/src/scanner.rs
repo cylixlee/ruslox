@@ -4,7 +4,7 @@ use codespan_reporting::diagnostic::{Diagnostic, Label};
 use peg::{Parse, ParseElem};
 
 #[rustfmt::skip]
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum Token {
     // Single character tokens.
     LeftParenthesis, RightParenthesis, LeftBrace, RightBrace,

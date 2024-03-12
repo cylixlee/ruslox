@@ -40,6 +40,7 @@ The error code concept is introduced with `codespan-reporting` as the supporting
 - `E0005`: unrecognized statement
 - `E0006`: missing specific token
 - `E0007`: missing variable name
+- `E0008`: invalid assignment target
 
 ### Runtime Error Codes
 - `E1001`: stack overflow
