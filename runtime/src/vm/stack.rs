@@ -43,6 +43,14 @@ impl<T, const N: usize> Stack<T, N> {
         Ok(ManuallyDrop::into_inner(slot))
     }
 
+    pub fn peek(&self) -> Option<&T> {
+        if self.top > 0 {
+            Some(&self.data[self.top - 1])
+        } else {
+            None
+        }
+    }
+
     pub fn len(&self) -> usize {
         self.top
     }

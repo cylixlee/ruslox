@@ -5,7 +5,7 @@ use crate::constant::Constant;
 #[rustfmt::skip]
 pub enum Instruction {
     // Instructions with operand.
-    Constant(u8),
+    Constant(u8), DefineGlobal(u8), GetGlobal(u8), SetGlobal(u8),
 
     // Literal instructions.
     Nil, True, False,
@@ -17,7 +17,7 @@ pub enum Instruction {
     Not, Equal, Greater, Less,
 
     // Miscellaneous.
-    Return,
+    Return, Print, Pop,
 }
 
 pub struct Chunk {
@@ -62,6 +62,9 @@ impl Chunk {
             Instruction::Constant(constant_index) => {
                 constant_instruction("CONST", constant_index, self)
             }
+            Instruction::DefineGlobal(index) => constant_instruction("DEFINEGLOBAL", index, self),
+            Instruction::GetGlobal(index) => constant_instruction("GETGLOBAL", index, self),
+            Instruction::SetGlobal(index) => constant_instruction("SETGLOBAL", index, self),
 
             // Literal instructions.
             Instruction::Nil => simple_instruction("NIL"),
@@ -83,6 +86,8 @@ impl Chunk {
 
             // Miscellaneous.
             Instruction::Return => simple_instruction("RET"),
+            Instruction::Print => simple_instruction("PRINT"),
+            Instruction::Pop => simple_instruction("POP"),
         }
     }
 }

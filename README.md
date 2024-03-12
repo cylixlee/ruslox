@@ -37,6 +37,9 @@ The error code concept is introduced with `codespan-reporting` as the supporting
 - `E0002`: unexpected character
 - `E0003`: uninterpretable number literal
 - `E0004`: unterminated string
+- `E0005`: unrecognized statement
+- `E0006`: missing specific token
+- `E0007`: missing variable name
 
 ### Runtime Error Codes
 - `E1001`: stack overflow
@@ -44,3 +47,6 @@ The error code concept is introduced with `codespan-reporting` as the supporting
 - `E1003`: operands must be numbers
 - `E1004`: operand must be number
 - `E1005`: concatenation operands must be both numbers or both strings.
+- `E1006`: invalid name of global definition
+- `E1007`: defining global with empty stack
+- `E1008`: undefined global

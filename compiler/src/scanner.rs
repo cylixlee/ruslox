@@ -1,4 +1,4 @@
-use std::fmt::Display;
+use std::{fmt::Display, ops::Range};
 
 use codespan_reporting::diagnostic::{Diagnostic, Label};
 use peg::{Parse, ParseElem};
@@ -25,21 +25,55 @@ pub enum Token {
     Error,
 }
 
-#[derive(Debug, Clone, Copy)]
-pub struct TokenPosition {
-    pub start: usize,
-    pub end: usize,
-}
-
-impl Display for TokenPosition {
+impl Display for Token {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "({}..{})", self.start, self.end)
+        match self {
+            Token::LeftParenthesis => write!(f, "("),
+            Token::RightParenthesis => write!(f, ")"),
+            Token::LeftBrace => write!(f, "{{"),
+            Token::RightBrace => write!(f, "}}"),
+            Token::Comma => write!(f, ","),
+            Token::Dot => write!(f, "."),
+            Token::Minus => write!(f, "-"),
+            Token::Plus => write!(f, "+"),
+            Token::Semicolon => write!(f, ";"),
+            Token::Slash => write!(f, "/"),
+            Token::Star => write!(f, "*"),
+            Token::Bang => write!(f, "!"),
+            Token::BangEqual => write!(f, "!="),
+            Token::Equal => write!(f, "="),
+            Token::EqualEqual => write!(f, "=="),
+            Token::Greater => write!(f, ">"),
+            Token::GreaterEqual => write!(f, ">="),
+            Token::Less => write!(f, "<"),
+            Token::LessEqual => write!(f, "<="),
+            Token::Identifier(_) => write!(f, "identifier"),
+            Token::String(_) => write!(f, "string literal"),
+            Token::Number(_) => write!(f, "number literal"),
+            Token::And => write!(f, "and"),
+            Token::Class => write!(f, "class"),
+            Token::Else => write!(f, "else"),
+            Token::False => write!(f, "false"),
+            Token::For => write!(f, "for"),
+            Token::Fun => write!(f, "fun"),
+            Token::If => write!(f, "if"),
+            Token::Nil => write!(f, "nil"),
+            Token::Or => write!(f, "or"),
+            Token::Print => write!(f, "print"),
+            Token::Return => write!(f, "return"),
+            Token::Super => write!(f, "super"),
+            Token::This => write!(f, "this"),
+            Token::True => write!(f, "true"),
+            Token::Var => write!(f, "var"),
+            Token::While => write!(f, "while"),
+            Token::Error => write!(f, "<internal error>"),
+        }
     }
 }
 
 pub struct ScannedContext {
     pub tokens: Vec<Token>,
-    pub positions: Vec<TokenPosition>,
+    pub positions: Vec<Range<usize>>,
     pub diagnostics: Vec<Diagnostic<usize>>,
 }
 
@@ -54,7 +88,7 @@ impl ScannedContext {
 
     fn record(&mut self, token: Token, start: usize, end: usize) {
         self.tokens.push(token);
-        self.positions.push(TokenPosition { start, end });
+        self.positions.push(start..end);
     }
 
     fn report(&mut self, diagnostic: Diagnostic<usize>) {
@@ -63,7 +97,7 @@ impl ScannedContext {
 }
 
 impl Parse for ScannedContext {
-    type PositionRepr = TokenPosition;
+    type PositionRepr = usize;
 
     fn start<'input>(&'input self) -> usize {
         0
@@ -74,7 +108,7 @@ impl Parse for ScannedContext {
     }
 
     fn position_repr<'input>(&'input self, p: usize) -> Self::PositionRepr {
-        self.positions[p]
+        p
     }
 }
 

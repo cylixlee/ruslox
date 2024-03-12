@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use codespan_reporting::diagnostic::Diagnostic;
 use shared::{
     chunk::{Chunk, Instruction},
@@ -21,6 +23,7 @@ pub struct VirtualMachine {
     offset: usize,
     stack: Stack<Value, STACK_CAPACITY>,
     pub heap: Heap,
+    globals: HashMap<String, Value>,
 }
 
 impl VirtualMachine {
@@ -30,6 +33,7 @@ impl VirtualMachine {
             offset: 0,
             stack: Stack::new(),
             heap: Heap::new(),
+            globals: HashMap::new(),
         }
     }
 
@@ -97,6 +101,73 @@ impl VirtualMachine {
                             .push(Value::Object(self.heap.manage_string(string)))?,
                     }
                 }
+                Instruction::DefineGlobal(index) => {
+                    let name = chunk.constants[*index as usize].clone();
+                    let name = match name {
+                        Constant::String(name) => name,
+                        _ => {
+                            return Err(Diagnostic::error()
+                                .with_code("E1006")
+                                .with_message("invalid name of global definition"))
+                        }
+                    };
+                    let value = match self.stack.peek() {
+                        Some(value) => value.clone(),
+                        None => {
+                            return Err(Diagnostic::error()
+                                .with_code("E1007")
+                                .with_message("defining global with empty stack"))
+                        }
+                    };
+                    self.globals.insert(name, value);
+                    self.stack.pop()?; // We dont pop first then insert because of GC.
+                }
+                Instruction::GetGlobal(index) => {
+                    let name = chunk.constants[*index as usize].clone();
+                    let name = match name {
+                        Constant::String(name) => name,
+                        _ => {
+                            return Err(Diagnostic::error()
+                                .with_code("E1006")
+                                .with_message("invalid name of global definition"))
+                        }
+                    };
+                    let value = match self.globals.get(&name) {
+                        Some(value) => value.clone(),
+                        None => {
+                            return Err(Diagnostic::error()
+                                .with_code("E1008")
+                                .with_message(format!("undefined global {}", name)))
+                        }
+                    };
+                    self.stack.push(value)?;
+                }
+                Instruction::SetGlobal(index) => {
+                    let name = chunk.constants[*index as usize].clone();
+                    let name = match name {
+                        Constant::String(name) => name,
+                        _ => {
+                            return Err(Diagnostic::error()
+                                .with_code("E1006")
+                                .with_message("invalid name of global definition"))
+                        }
+                    };
+                    if self.globals.contains_key(&name) {
+                        return Err(Diagnostic::error()
+                            .with_code("E1008")
+                            .with_message(format!("undefined global {}", name)));
+                    }
+                    let value = match self.stack.peek() {
+                        Some(value) => value.clone(),
+                        None => {
+                            return Err(Diagnostic::error()
+                                .with_code("E1007")
+                                .with_message("defining global with empty stack"))
+                        }
+                    };
+                    self.globals.insert(name, value);
+                    self.stack.pop()?; // We dont pop first then insert because of GC.
+                }
 
                 // Literal instructions.
                 Instruction::Nil => self.stack.push(Value::Nil)?,
@@ -160,9 +231,10 @@ impl VirtualMachine {
                 Instruction::Less => arithmetic_cmp!(<),
 
                 // Miscellaneous.
-                Instruction::Return => {
-                    println!("{}", self.stack.pop()?);
-                    return Ok(());
+                Instruction::Return => return Ok(()),
+                Instruction::Print => println!("{}", self.stack.pop()?),
+                Instruction::Pop => {
+                    self.stack.pop()?;
                 }
             }
             self.offset += 1;

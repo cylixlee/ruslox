@@ -9,5 +9,5 @@ pub fn compile(file_id: usize, source: impl AsRef<str>) -> Result<Chunk, Vec<Dia
     if !scanned.diagnostics.is_empty() {
         return Err(scanned.diagnostics);
     }
-    parser::parse(&scanned)
+    parser::parse(file_id, &scanned)
 }
