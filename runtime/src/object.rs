@@ -4,6 +4,19 @@ use std::{
     ptr,
 };
 
+pub trait GarbageCollect {
+    fn register(&mut self, reference: ManagedReference);
+}
+
+pub trait FromUnmanaged<T> {
+    fn from_unmanaged<G: GarbageCollect>(value: T, gc: &mut G) -> Self;
+}
+
+pub trait Downcast<T> {
+    fn downcast(&self) -> Option<&T>;
+    fn downcast_mut(&mut self) -> Option<&mut T>;
+}
+
 macro_rules! register_object {
     ($($objtype:ident), *) => {
         #[derive(Clone, Copy)]
@@ -35,7 +48,9 @@ macro_rules! register_object {
                     fn from_unmanaged<G: GarbageCollect>(value: [<$objtype Object>], gc: &mut G) -> Self {
                         let reference = ManagedReference {
                             data: Box::into_raw(Box::new(value)) as *mut (),
-                            meta: Box::into_raw(Box::new(ObjectMeta::new(ObjectType::$objtype))),
+                            meta: Box::into_raw(Box::new(ObjectMeta {
+                                typ: ObjectType::$objtype,
+                            })),
                         };
                         gc.register(reference.clone());
                         reference
@@ -46,7 +61,9 @@ macro_rules! register_object {
             impl ManagedReference {
                 pub unsafe fn finalize(self) {
                     match self.typ {
-                        $(ObjectType::$objtype => mem::drop(Box::from_raw(self.data as *mut [<$objtype Object>])) ,)*
+                        $(
+                            ObjectType::$objtype => mem::drop(Box::from_raw(self.data as *mut [<$objtype Object>])),
+                        )*
                     }
                     mem::drop(Box::from_raw(self.meta));
                 }
@@ -59,12 +76,6 @@ register_object!(String);
 
 pub struct ObjectMeta {
     pub typ: ObjectType,
-}
-
-impl ObjectMeta {
-    fn new(typ: ObjectType) -> Self {
-        Self { typ }
-    }
 }
 
 pub type StringObject = String;
@@ -110,16 +121,3 @@ impl PartialEq for ManagedReference {
 }
 
 impl Eq for ManagedReference {}
-
-pub trait Downcast<T> {
-    fn downcast(&self) -> Option<&T>;
-    fn downcast_mut(&mut self) -> Option<&mut T>;
-}
-
-pub trait GarbageCollect {
-    fn register(&mut self, reference: ManagedReference);
-}
-
-pub trait FromUnmanaged<T> {
-    fn from_unmanaged<G: GarbageCollect>(value: T, gc: &mut G) -> Self;
-}
