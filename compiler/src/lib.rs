@@ -231,6 +231,6 @@ pub fn compile(file_id: usize, source: impl AsRef<str>) -> InterpretResult<Chunk
     let parsed = parser::parse(file_id, &scanned)?;
     let mut chunk = Chunk::new(file_id);
     Compiler::new(file_id, &parsed, &mut chunk).compile()?;
-    chunk.write(Instruction::Return, chunk.positions.last().unwrap().clone());
+    chunk.write(Instruction::Return, 0..0);
     Ok(chunk)
 }

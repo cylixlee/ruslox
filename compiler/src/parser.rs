@@ -63,18 +63,41 @@ peg::parser!(grammar pegparser(
 ) for ScannedContext {
 
     pub rule declarations()
-        = ds:declaration()* {
+        = ds:top_declaration()* {
             for (position, statement) in ds {
                 context.borrow_mut().record(statement, token_positions[position].clone());
             }
         }
 
-    rule declaration() -> (usize, Statement<'input>)
+    rule top_declaration() -> (usize, Statement<'input>)
         = start:position!() s:recognized_declaration() { (start, s) }
         / start:position!() s:recognized_statement() { (start, s) }
-        / pos:position!()
-         ![Token::Semicolon | Token::LeftBrace | Token::RightBrace | Token::Var]
-          [t]+ [Token::Semicolon]? {
+        / pos:position!() ![
+            Token::Semicolon |
+            Token::LeftBrace |
+            Token::Var
+          ] [t]+ [Token::Semicolon]? {
+            context.borrow_mut().report(
+                ErrorItem::error()
+                    .with_code("E0005")
+                    .with_message("unrecognized statement")
+                    .with_labels(vec![
+                        Label::secondary(file_id, token_positions[pos].clone())
+                            .with_message("statement starting from here is unrecognizable")
+                    ])
+            );
+            context.borrow_mut().panic_mode = false;
+            (pos, Statement::Error)
+        }
+
+    rule inblock_declaration() -> (usize, Statement<'input>)
+        = start:position!() s:recognized_declaration() { (start, s) }
+        / start:position!() s:recognized_statement() { (start, s) }
+        / pos:position!() ![Token::RightBrace] ![
+            Token::Semicolon |
+            Token::LeftBrace |
+            Token::Var
+          ] [t]+ [Token::Semicolon]? {
             context.borrow_mut().report(
                 ErrorItem::error()
                     .with_code("E0005")
@@ -125,8 +148,7 @@ peg::parser!(grammar pegparser(
             Statement::Print(Box::new(e))
         }
         / e:expression() must_consume(Token::Semicolon) { Statement::Expressional(Box::new(e)) }
-        / [Token::LeftBrace] ds:declaration()* must_consume(Token::RightBrace) {
-            println!("in block");
+        / [Token::LeftBrace] ds:inblock_declaration()* must_consume(Token::RightBrace) {
             Statement::Block(ds.into_iter().map(|(_, statement)| statement).collect())
         }
 
