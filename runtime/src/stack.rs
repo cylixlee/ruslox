@@ -6,7 +6,9 @@ use std::{
 
 use shared::error::{ErrorItem, InterpretError, InterpretResult};
 
-pub struct Stack<T, const N: usize> {
+use crate::STACK_CAPACITY;
+
+pub struct Stack<T, const N: usize = STACK_CAPACITY> {
     data: [ManuallyDrop<T>; N],
     top: usize,
 }

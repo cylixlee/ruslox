@@ -8,20 +8,18 @@ use shared::{
 
 use crate::{
     object::{Downcast, FromUnmanaged, ManagedReference, ObjectType, StringObject},
+    stack::Stack,
     value::Value,
 };
 
-use self::{heap::Heap, stack::Stack};
+use self::heap::Heap;
 
 mod heap;
-mod stack;
-
-const STACK_CAPACITY: usize = u8::MAX as usize + 1;
 
 pub struct VirtualMachine {
     chunk: Option<Chunk>,
     offset: usize,
-    stack: Stack<Value, STACK_CAPACITY>,
+    stack: Stack<Value>,
     heap: Heap,
     globals: HashMap<String, Value>,
 }
