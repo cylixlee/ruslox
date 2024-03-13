@@ -1,96 +1,151 @@
-use codespan_reporting::diagnostic::Diagnostic;
-use parser::{Expression, Statement};
+use parser::{Expression, ParsedContext, Statement};
 use scanner::Token;
 use shared::{
     chunk::{Chunk, Instruction},
     constant::Constant,
+    error::{ErrorItem, InterpretError, InterpretResult, Label},
 };
 
 mod parser;
 mod scanner;
 
-pub fn compile(file_id: usize, source: impl AsRef<str>) -> Result<Chunk, Vec<Diagnostic<usize>>> {
-    let scanned = scanner::scan(file_id, source.as_ref());
-    if !scanned.diagnostics.is_empty() {
-        return Err(scanned.diagnostics);
-    }
-    let declarations = parser::parse(file_id, &scanned)?;
-    let mut chunk = Chunk::new();
-    for declaration in &declarations {
-        if let Err(diagnostic) = emit_statement(&mut chunk, declaration) {
-            return Err(vec![diagnostic]);
-        }
-    }
-    Ok(chunk)
+struct Compiler<'a> {
+    file_id: usize,
+    parsed_context: &'a ParsedContext<'a>,
+    chunk: &'a mut Chunk,
+    current_statement: usize,
 }
 
-fn emit_statement(chunk: &mut Chunk, statement: &Statement) -> Result<(), Diagnostic<usize>> {
-    match statement {
-        Statement::VarDeclaration(name, initializer) => {
-            let index = chunk.add_constant(Constant::String((*name).clone()))?;
-            match initializer {
-                Some(expression) => emit_expression(chunk, expression)?,
-                None => chunk.write(Instruction::Nil),
-            };
-            chunk.write(Instruction::DefineGlobal(index));
+impl<'a> Compiler<'a> {
+    fn new(file_id: usize, parsed_context: &'a ParsedContext, chunk: &'a mut Chunk) -> Self {
+        Self {
+            file_id,
+            parsed_context,
+            chunk,
+            current_statement: 0,
         }
-        Statement::Print(expression) => {
-            emit_expression(chunk, expression)?;
-            chunk.write(Instruction::Print);
-        }
-        Statement::Expressional(expression) => {
-            emit_expression(chunk, expression)?;
-            chunk.write(Instruction::Pop);
-        }
-        Statement::Error => unreachable!("still trying to emit after reporting diagnostics"),
     }
-    Ok(())
-}
 
-fn emit_expression(chunk: &mut Chunk, expression: &Expression) -> Result<(), Diagnostic<usize>> {
-    match expression {
-        Expression::String(string) => emit_constant(chunk, Constant::String((*string).clone()))?,
-        Expression::Number(number) => emit_constant(chunk, Constant::Number(*number))?,
-        Expression::Identifier(identifier) => {
-            let index = chunk.add_constant(Constant::String((*identifier).clone()))?;
-            chunk.write(Instruction::GetGlobal(index));
+    fn compile(&mut self) -> InterpretResult {
+        for statement in &self.parsed_context.statements {
+            self.emit_statement(statement)?;
+            self.current_statement += 1;
         }
-        Expression::True => chunk.write(Instruction::True),
-        Expression::False => chunk.write(Instruction::False),
-        Expression::Nil => chunk.write(Instruction::Nil),
-        Expression::Unary(operator, expression) => {
-            emit_expression(chunk, expression)?;
-            match operator {
-                Token::Minus => chunk.write(Instruction::Negate),
-                Token::Bang => chunk.write(Instruction::Not),
-                _ => unreachable!("emit failure due to parse error at unary expressions."),
+        Ok(())
+    }
+
+    fn emit_statement(&mut self, statement: &Statement) -> InterpretResult {
+        match statement {
+            Statement::VarDeclaration(name, initializer) => {
+                let index = self.emit_constant(Constant::String((*name).clone()))?;
+                match initializer {
+                    Some(expression) => self.emit_expression(expression)?,
+                    None => self.emit(Instruction::Nil),
+                };
+                self.emit(Instruction::DefineGlobal(index));
             }
+            Statement::Print(expression) => {
+                self.emit_expression(expression)?;
+                self.emit(Instruction::Print);
+            }
+            Statement::Expressional(expression) => {
+                self.emit_expression(expression)?;
+                self.emit(Instruction::Pop);
+            }
+            Statement::Error => unreachable!("still trying to emit after reporting diagnostics"),
         }
-        Expression::Binary(left, operator, right) => {
-            if let Token::Equal = operator {
-                match &**left {
-                    Expression::Identifier(identifier) => {
-                        let index = chunk.add_constant(Constant::String((*identifier).clone()))?;
-                        emit_expression(chunk, &right)?;
-                        chunk.write(Instruction::SetGlobal(index));
-                    }
-                    _ => {
-                        return Err(Diagnostic::error()
-                            .with_code("E0008")
-                            .with_message("invalid assignment target"))
-                    }
+        Ok(())
+    }
+
+    fn emit_expression(&mut self, expression: &Expression) -> InterpretResult {
+        match expression {
+            Expression::String(string) => {
+                let index = self.emit_constant(Constant::String((*string).clone()))?;
+                self.emit(Instruction::Constant(index));
+            }
+            Expression::Number(number) => {
+                let index = self.emit_constant(Constant::Number(*number))?;
+                self.emit(Instruction::Constant(index));
+            }
+            Expression::Identifier(identifier) => {
+                let index = self.emit_constant(Constant::String((*identifier).clone()))?;
+                self.emit(Instruction::GetGlobal(index));
+            }
+            Expression::True => self.emit(Instruction::True),
+            Expression::False => self.emit(Instruction::False),
+            Expression::Nil => self.emit(Instruction::Nil),
+            Expression::Unary(operator, expression) => {
+                self.emit_expression(expression)?;
+                match operator {
+                    Token::Minus => self.emit(Instruction::Negate),
+                    Token::Bang => self.emit(Instruction::Not),
+                    _ => unreachable!("emit failure due to parse error at unary expressions."),
                 }
-            } else {
-                emit_expression(chunk, &left)?;
-                emit_expression(chunk, &right)?;
+            }
+            Expression::Binary(left, operator, right) => {
+                if let Token::Equal = operator {
+                    match &**left {
+                        Expression::Identifier(identifier) => {
+                            let index =
+                                self.emit_constant(Constant::String((*identifier).clone()))?;
+                            self.emit_expression(&right)?;
+                            self.emit(Instruction::SetGlobal(index));
+                        }
+                        _ => {
+                            return Err(InterpretError::Simple(
+                                ErrorItem::error()
+                                    .with_code("E0008")
+                                    .with_message("invalid assignment target")
+                                    .with_labels(vec![Label::secondary(
+                                        self.file_id,
+                                        self.parsed_context.positions[self.current_statement]
+                                            .clone(),
+                                    )
+                                    .with_message("assignment started here")]),
+                            ))
+                        }
+                    }
+                } else {
+                    self.emit_expression(&left)?;
+                    self.emit_expression(&right)?;
+                }
             }
         }
+        Ok(())
     }
-    Ok(())
+
+    fn emit_constant(&mut self, constant: Constant) -> InterpretResult<u8> {
+        let index = match self.chunk.add_constant(constant) {
+            Some(index) => index,
+            None => {
+                return Err(InterpretError::Simple(
+                    ErrorItem::error()
+                        .with_code("E0001")
+                        .with_message("too many constants in one chunk")
+                        .with_labels(vec![Label::secondary(
+                            self.file_id,
+                            self.parsed_context.positions[self.current_statement].clone(),
+                        )
+                        .with_message("originated from this statement")]),
+                ));
+            }
+        };
+        Ok(index)
+    }
+
+    fn emit(&mut self, instruction: Instruction) {
+        self.chunk.write(
+            instruction,
+            self.parsed_context.positions[self.current_statement].clone(),
+        );
+    }
 }
 
-fn emit_constant(chunk: &mut Chunk, constant: Constant) -> Result<(), Diagnostic<usize>> {
-    let index = chunk.add_constant(constant)?;
-    chunk.write(Instruction::Constant(index));
-    Ok(())
+pub fn compile(file_id: usize, source: impl AsRef<str>) -> InterpretResult<Chunk> {
+    let scanned = scanner::scan(file_id, source.as_ref())?;
+    let parsed = parser::parse(file_id, &scanned)?;
+    let mut chunk = Chunk::new(file_id);
+    Compiler::new(file_id, &parsed, &mut chunk).compile()?;
+    chunk.write(Instruction::Return, chunk.positions.last().unwrap().clone());
+    Ok(chunk)
 }

@@ -1,25 +1,36 @@
 use std::{cell::RefCell, mem, ops::Range};
 
-use codespan_reporting::diagnostic::{Diagnostic, Label};
+use shared::error::{ErrorItem, InterpretError, InterpretResult, Label};
 
 use crate::scanner::{ScannedContext, Token};
 
-struct Parser {
-    diagnostics: Vec<Diagnostic<usize>>,
+pub struct ParsedContext<'a> {
+    pub statements: Vec<Statement<'a>>,
+    pub positions: Vec<Range<usize>>,
+    pub errors: Vec<ErrorItem>,
     panic_mode: bool,
 }
 
-impl Parser {
+impl<'a> ParsedContext<'a> {
     fn new() -> Self {
         Self {
-            diagnostics: Vec::new(),
+            statements: Vec::new(),
+            positions: Vec::new(),
+            errors: Vec::new(),
             panic_mode: false,
         }
     }
 
-    fn report(&mut self, diagnostic: Diagnostic<usize>) {
-        self.diagnostics.push(diagnostic);
-        self.panic_mode = true;
+    fn record(&mut self, statement: Statement<'a>, position: Range<usize>) {
+        self.statements.push(statement);
+        self.positions.push(position);
+    }
+
+    fn report(&mut self, error: ErrorItem) {
+        if !self.panic_mode {
+            self.errors.push(error);
+            self.panic_mode = true;
+        }
     }
 }
 
@@ -46,16 +57,20 @@ pub enum Statement<'a> {
     Error,
 }
 
-peg::parser!(grammar pegparser(file_id: usize, ranges: &Vec<Range<usize>>, parser: &RefCell<Parser>) for ScannedContext {
+peg::parser!(grammar pegparser(file_id: usize, ranges: &Vec<Range<usize>>, context: &RefCell<ParsedContext<'input>>) for ScannedContext {
 
-    pub rule declarations() -> Vec<Statement<'input>>
+    pub rule declarations()
         = declaration()*
 
-    rule declaration() -> Statement<'input>
-        = recognized_declaration()
-        / recognized_statement()
+    rule declaration()
+        = start:position!() s:recognized_declaration() {
+            context.borrow_mut().record(s, ranges[start].clone());
+        }
+        / start:position!() s:recognized_statement() {
+            context.borrow_mut().record(s, ranges[start].clone());
+        }
         / pos:position!() ![Token::Semicolon] [_]+ [Token::Semicolon]? {
-            parser.borrow_mut().report(Diagnostic::error()
+            context.borrow_mut().report(ErrorItem::error()
                 .with_code("E0005")
                 .with_message("unrecognized statement")
                 .with_labels(vec![
@@ -63,8 +78,7 @@ peg::parser!(grammar pegparser(file_id: usize, ranges: &Vec<Range<usize>>, parse
                         .with_message("statement starting from here is unrecognizable")
                 ])
             );
-            parser.borrow_mut().panic_mode = false;
-            Statement::Error
+            context.borrow_mut().panic_mode = false;
         }
 
     rule recognized_declaration() -> Statement<'input>
@@ -87,7 +101,7 @@ peg::parser!(grammar pegparser(file_id: usize, ranges: &Vec<Range<usize>>, parse
     rule variable_name() -> Option<&'input String>
         = [Token::Identifier(identifier)] { Some(identifier) }
         / pos:position!() {
-            parser.borrow_mut().report(Diagnostic::error()
+            context.borrow_mut().report(ErrorItem::error()
                 .with_code("E0007")
                 .with_message("missing variable name")
                 .with_labels(vec![
@@ -107,7 +121,7 @@ peg::parser!(grammar pegparser(file_id: usize, ranges: &Vec<Range<usize>>, parse
     rule must_consume(token: Token)
         = [t if mem::discriminant(t) == mem::discriminant(&token)]
         / pos:position!() {
-            parser.borrow_mut().report(Diagnostic::error()
+            context.borrow_mut().report(ErrorItem::error()
                 .with_code("E0006")
                 .with_message("missing specific token")
                 .with_labels(vec![
@@ -144,17 +158,13 @@ peg::parser!(grammar pegparser(file_id: usize, ranges: &Vec<Range<usize>>, parse
     }
 });
 
-pub fn parse(
-    file_id: usize,
-    scanned: &ScannedContext,
-) -> Result<Vec<Statement>, Vec<Diagnostic<usize>>> {
-    let parser = RefCell::new(Parser::new());
-    let declarations = pegparser::declarations(scanned, file_id, &scanned.positions, &parser)
+pub fn parse(file_id: usize, scanned: &ScannedContext) -> InterpretResult<ParsedContext> {
+    let context = RefCell::new(ParsedContext::new());
+    pegparser::declarations(scanned, file_id, &scanned.positions, &context)
         .expect("internal parse error");
-    let parser = parser.into_inner();
-    if !parser.diagnostics.is_empty() {
-        Err(parser.diagnostics)
-    } else {
-        Ok(declarations)
+    let context = RefCell::into_inner(context);
+    match context.errors.is_empty() {
+        true => Ok(context),
+        false => Err(InterpretError::Compound(context.errors)),
     }
 }

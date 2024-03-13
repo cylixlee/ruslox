@@ -1,9 +1,9 @@
 use std::collections::HashMap;
 
-use codespan_reporting::diagnostic::Diagnostic;
 use shared::{
     chunk::{Chunk, Instruction},
     constant::Constant,
+    error::{ErrorItem, InterpretError, InterpretResult, Label},
 };
 
 use crate::{
@@ -22,7 +22,7 @@ pub struct VirtualMachine {
     chunk: Option<Chunk>,
     offset: usize,
     stack: Stack<Value, STACK_CAPACITY>,
-    pub heap: Heap,
+    heap: Heap,
     globals: HashMap<String, Value>,
 }
 
@@ -37,7 +37,7 @@ impl VirtualMachine {
         }
     }
 
-    pub fn interpret(&mut self, chunk: Chunk) -> Result<(), Diagnostic<usize>> {
+    pub fn interpret(&mut self, chunk: Chunk) -> InterpretResult {
         self.chunk = Some(chunk);
         self.offset = 0;
         self.run()
@@ -47,7 +47,9 @@ impl VirtualMachine {
         self.stack.clear();
     }
 
-    fn run(&mut self) -> Result<(), Diagnostic<usize>> {
+    fn run(&mut self) -> InterpretResult {
+        let chunk = self.chunk.as_ref().unwrap();
+
         macro_rules! arithmetic {
             ($operator:tt, $typ:ident) => {{
                 let right = self.stack.pop()?;
@@ -59,9 +61,15 @@ impl VirtualMachine {
                     }
 
                     _ => {
-                        return Err(Diagnostic::error()
-                            .with_code("E1003")
-                            .with_message("operands must be numbers"));
+                        return Err(InterpretError::Simple(
+                            ErrorItem::error()
+                                .with_code("E1003")
+                                .with_message("operands must be numbers")
+                                .with_labels(vec![
+                                    Label::secondary(chunk.file_id, chunk.positions[self.offset].clone())
+                                        .with_message("arithmetic operation in this statement")
+                                ])
+                        ));
                     }
                 }
             }};
@@ -74,8 +82,6 @@ impl VirtualMachine {
         #[rustfmt::skip] macro_rules! arithmetic_cmp {
             ($operator:tt) => { arithmetic!($operator, Boolean) };
         }
-
-        let chunk = self.chunk.as_ref().unwrap();
 
         loop {
             #[cfg(debug_assertions)]
@@ -106,17 +112,31 @@ impl VirtualMachine {
                     let name = match name {
                         Constant::String(name) => name,
                         _ => {
-                            return Err(Diagnostic::error()
-                                .with_code("E1006")
-                                .with_message("invalid name of global definition"))
+                            return Err(InterpretError::Simple(
+                                ErrorItem::error()
+                                    .with_code("E1006")
+                                    .with_message("invalid name of global definition")
+                                    .with_labels(vec![Label::secondary(
+                                        chunk.file_id,
+                                        chunk.positions[self.offset].clone(),
+                                    )
+                                    .with_message("global definition within this statement")]),
+                            ))
                         }
                     };
                     let value = match self.stack.peek() {
                         Some(value) => value.clone(),
                         None => {
-                            return Err(Diagnostic::error()
-                                .with_code("E1007")
-                                .with_message("defining global with empty stack"))
+                            return Err(InterpretError::Simple(
+                                ErrorItem::error()
+                                    .with_code("E1007")
+                                    .with_message("defining global with empty stack")
+                                    .with_labels(vec![Label::secondary(
+                                        chunk.file_id,
+                                        chunk.positions[self.offset].clone(),
+                                    )
+                                    .with_message("global definition within this statement")]),
+                            ))
                         }
                     };
                     self.globals.insert(name, value);
@@ -127,17 +147,31 @@ impl VirtualMachine {
                     let name = match name {
                         Constant::String(name) => name,
                         _ => {
-                            return Err(Diagnostic::error()
-                                .with_code("E1006")
-                                .with_message("invalid name of global definition"))
+                            return Err(InterpretError::Simple(
+                                ErrorItem::error()
+                                    .with_code("E1006")
+                                    .with_message("invalid name of global definition")
+                                    .with_labels(vec![Label::secondary(
+                                        chunk.file_id,
+                                        chunk.positions[self.offset].clone(),
+                                    )
+                                    .with_message("global definition within this statement")]),
+                            ))
                         }
                     };
                     let value = match self.globals.get(&name) {
                         Some(value) => value.clone(),
                         None => {
-                            return Err(Diagnostic::error()
-                                .with_code("E1008")
-                                .with_message(format!("undefined global {}", name)))
+                            return Err(InterpretError::Simple(
+                                ErrorItem::error()
+                                    .with_code("E1008")
+                                    .with_message(format!("undefined global {}", name))
+                                    .with_labels(vec![Label::secondary(
+                                        chunk.file_id,
+                                        chunk.positions[self.offset].clone(),
+                                    )
+                                    .with_message("originated within this statement")]),
+                            ))
                         }
                     };
                     self.stack.push(value)?;
@@ -147,22 +181,43 @@ impl VirtualMachine {
                     let name = match name {
                         Constant::String(name) => name,
                         _ => {
-                            return Err(Diagnostic::error()
-                                .with_code("E1006")
-                                .with_message("invalid name of global definition"))
+                            return Err(InterpretError::Simple(
+                                ErrorItem::error()
+                                    .with_code("E1006")
+                                    .with_message("invalid name of global definition")
+                                    .with_labels(vec![Label::secondary(
+                                        chunk.file_id,
+                                        chunk.positions[self.offset].clone(),
+                                    )
+                                    .with_message("global definition within this statement")]),
+                            ))
                         }
                     };
                     if !self.globals.contains_key(&name) {
-                        return Err(Diagnostic::error()
-                            .with_code("E1008")
-                            .with_message(format!("undefined global {}", name)));
+                        return Err(InterpretError::Simple(
+                            ErrorItem::error()
+                                .with_code("E1008")
+                                .with_message(format!("undefined global {}", name))
+                                .with_labels(vec![Label::secondary(
+                                    chunk.file_id,
+                                    chunk.positions[self.offset].clone(),
+                                )
+                                .with_message("originated within this statement")]),
+                        ));
                     }
                     let value = match self.stack.peek() {
                         Some(value) => value.clone(),
                         None => {
-                            return Err(Diagnostic::error()
-                                .with_code("E1007")
-                                .with_message("defining global with empty stack"))
+                            return Err(InterpretError::Simple(
+                                ErrorItem::error()
+                                    .with_code("E1007")
+                                    .with_message("defining global with empty stack")
+                                    .with_labels(vec![Label::secondary(
+                                        chunk.file_id,
+                                        chunk.positions[self.offset].clone(),
+                                    )
+                                    .with_message("originated within this statement")]),
+                            ))
                         }
                     };
                     self.globals.insert(name, value);
@@ -194,8 +249,14 @@ impl VirtualMachine {
                             }
                         }
                         _ => {
-                            return Err(Diagnostic::error().with_code("E1005").with_message(
-                                "concatenation operands must be both numbers or both strings.",
+                            return Err(InterpretError::Simple(
+                                ErrorItem::error().with_code("E1005").with_message(
+                                    "concatenation operands must be both numbers or both strings.",
+                                ).with_labels(vec![Label::secondary(
+                                        chunk.file_id,
+                                        chunk.positions[self.offset].clone(),
+                                    )
+                                    .with_message("concatenation within this statement")]),
                             ));
                         }
                     }
@@ -206,9 +267,16 @@ impl VirtualMachine {
                 Instruction::Negate => match self.stack.pop()? {
                     Value::Number(number) => self.stack.push(Value::Number(-number))?,
                     _ => {
-                        return Err(Diagnostic::error()
-                            .with_code("E1004")
-                            .with_message("operand must be number"));
+                        return Err(InterpretError::Simple(
+                            ErrorItem::error()
+                                .with_code("E1004")
+                                .with_message("operand must be number")
+                                .with_labels(vec![Label::secondary(
+                                    chunk.file_id,
+                                    chunk.positions[self.offset].clone(),
+                                )
+                                .with_message("arithmetic negation within this statement")]),
+                        ));
                     }
                 },
 

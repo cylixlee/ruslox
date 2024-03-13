@@ -1,7 +1,7 @@
 use std::{fmt::Display, ops::Range};
 
-use codespan_reporting::diagnostic::{Diagnostic, Label};
 use peg::{Parse, ParseElem};
+use shared::error::{ErrorItem, InterpretError, InterpretResult, Label};
 
 #[rustfmt::skip]
 pub enum Token {
@@ -73,7 +73,7 @@ impl Display for Token {
 pub struct ScannedContext {
     pub tokens: Vec<Token>,
     pub positions: Vec<Range<usize>>,
-    pub diagnostics: Vec<Diagnostic<usize>>,
+    pub errors: Vec<ErrorItem>,
 }
 
 impl ScannedContext {
@@ -81,17 +81,17 @@ impl ScannedContext {
         Self {
             tokens: Vec::new(),
             positions: Vec::new(),
-            diagnostics: Vec::new(),
+            errors: Vec::new(),
         }
     }
 
-    fn record(&mut self, token: Token, range: Range<usize>) {
+    fn record(&mut self, token: Token, position: Range<usize>) {
         self.tokens.push(token);
-        self.positions.push(range);
+        self.positions.push(position);
     }
 
-    fn report(&mut self, diagnostic: Diagnostic<usize>) {
-        self.diagnostics.push(diagnostic);
+    fn report(&mut self, error: ErrorItem) {
+        self.errors.push(error);
     }
 }
 
@@ -134,7 +134,7 @@ peg::parser!(grammar pegscanner(file_id: usize, context: &mut ScannedContext) fo
         }
         / start:position!() [_] {
             context.record(Error, start..start + 1);
-            context.report(Diagnostic::error()
+            context.report(ErrorItem::error()
                 .with_code("E0002")
                 .with_message("unexpected character")
                 .with_labels(vec![
@@ -200,7 +200,7 @@ peg::parser!(grammar pegscanner(file_id: usize, context: &mut ScannedContext) fo
             match s.parse::<f64>() {
                 Ok(n) => Number(n),
                 Err(_) => {
-                    context.report(Diagnostic::error()
+                    context.report(ErrorItem::error()
                         .with_code("E0003")
                         .with_message("uninterpretable number literal")
                         .with_labels(vec![
@@ -215,7 +215,7 @@ peg::parser!(grammar pegscanner(file_id: usize, context: &mut ScannedContext) fo
     rule string() -> Token
         = "\"" s:$([^'"']*) "\"" { String(s.into()) }
         / start:position!() "\"" [_]* {
-            context.report(Diagnostic::error()
+            context.report(ErrorItem::error()
                 .with_code("E0004")
                 .with_message("unterminated string")
                 .with_labels(vec![
@@ -237,8 +237,11 @@ peg::parser!(grammar pegscanner(file_id: usize, context: &mut ScannedContext) fo
     rule comment() = "//" [^'\n']*
 });
 
-pub fn scan<'a>(file_id: usize, input: &'a str) -> ScannedContext {
+pub fn scan<'a>(file_id: usize, input: &'a str) -> InterpretResult<ScannedContext> {
     let mut context = ScannedContext::new();
     pegscanner::scan(input, file_id, &mut context).expect("internal scan error.");
-    context
+    match context.errors.is_empty() {
+        true => Ok(context),
+        false => Err(InterpretError::Compound(context.errors)),
+    }
 }

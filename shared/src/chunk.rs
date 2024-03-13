@@ -1,4 +1,4 @@
-use codespan_reporting::diagnostic::Diagnostic;
+use std::ops::Range;
 
 use crate::constant::Constant;
 
@@ -21,30 +21,33 @@ pub enum Instruction {
 }
 
 pub struct Chunk {
+    pub file_id: usize,
     pub code: Vec<Instruction>,
+    pub positions: Vec<Range<usize>>,
     pub constants: Vec<Constant>,
 }
 
 impl Chunk {
-    pub fn new() -> Self {
+    pub fn new(file_id: usize) -> Self {
         Self {
+            file_id,
             code: Vec::new(),
+            positions: Vec::new(),
             constants: Vec::with_capacity(u8::MAX as usize + 1),
         }
     }
 
-    pub fn write(&mut self, instruction: Instruction) {
+    pub fn write(&mut self, instruction: Instruction, position: Range<usize>) {
         self.code.push(instruction);
+        self.positions.push(position);
     }
 
-    pub fn add_constant(&mut self, value: Constant) -> Result<u8, Diagnostic<usize>> {
+    pub fn add_constant(&mut self, value: Constant) -> Option<u8> {
         if self.constants.len() >= u8::MAX as usize + 1 {
-            return Err(Diagnostic::error()
-                .with_code("E0001")
-                .with_message("too many constants in one chunk"));
+            return None;
         }
         self.constants.push(value);
-        Ok((self.constants.len() - 1) as u8)
+        Some((self.constants.len() - 1) as u8)
     }
 
     pub fn disassemble(&self, title: impl AsRef<str>) {

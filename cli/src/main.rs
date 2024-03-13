@@ -4,15 +4,8 @@ use std::{
     path::Path,
 };
 
-use codespan_reporting::{
-    files::SimpleFiles,
-    term::{
-        self,
-        termcolor::{ColorChoice, StandardStream},
-        Config,
-    },
-};
 use runtime::vm::VirtualMachine;
+use shared::error::SourceFileManager;
 
 const REPL_SIGN: &str = ">>";
 
@@ -55,25 +48,16 @@ fn run_file(vm: &mut VirtualMachine, path: impl AsRef<Path>) -> io::Result<()> {
 
 fn run(vm: &mut VirtualMachine, source: impl AsRef<str>, filename: impl AsRef<str>) {
     // codespan-reporting environments.
-    let mut files = SimpleFiles::new();
+    let mut files = SourceFileManager::new();
     let file_id = files.add(filename.as_ref(), source.as_ref());
-    let stream = StandardStream::stderr(ColorChoice::Always);
-    let stream = &mut stream.lock();
-    let config = Config::default();
 
     match compiler::compile(file_id, source.as_ref()) {
-        Err(diagnostics) => {
-            for diagnostic in &diagnostics {
-                term::emit(stream, &config, &files, diagnostic)
-                    .expect("internal diagnostic error after compilation");
+        Ok(chunk) => {
+            if let Err(error) = vm.interpret(chunk) {
+                error.emit(&files);
             }
             vm.clear_stack();
         }
-        Ok(chunk) => {
-            if let Err(diagnostic) = vm.interpret(chunk) {
-                term::emit(stream, &config, &files, &diagnostic)
-                    .expect("internal diagnostic error during interpretation");
-            }
-        }
+        Err(error) => error.emit(&files),
     }
 }
