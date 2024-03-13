@@ -50,6 +50,25 @@ impl VirtualMachine {
     fn run(&mut self) -> InterpretResult {
         let chunk = self.chunk.as_ref().unwrap();
 
+        macro_rules! report {
+            ($code:expr, $message:expr, $label:expr) => {
+                return Err(InterpretError::Simple(
+                    ErrorItem::error()
+                        .with_code($code)
+                        .with_message($message)
+                        .with_labels(vec![Label::secondary(
+                            chunk.file_id,
+                            chunk.positions[self.offset].clone(),
+                        )
+                        .with_message($label)]),
+                ))
+            };
+
+            ($code:expr, $message:expr) => {
+                report!($code, $message, "error originated within this statement")
+            };
+        }
+
         macro_rules! arithmetic {
             ($operator:tt, $typ:ident) => {{
                 let right = self.stack.pop()?;
@@ -59,29 +78,16 @@ impl VirtualMachine {
                     (Value::Number(left), Value::Number(right)) => {
                         self.stack.push(Value::$typ(left $operator right))?;
                     }
-
-                    _ => {
-                        return Err(InterpretError::Simple(
-                            ErrorItem::error()
-                                .with_code("E1003")
-                                .with_message("operands must be numbers")
-                                .with_labels(vec![
-                                    Label::secondary(chunk.file_id, chunk.positions[self.offset].clone())
-                                        .with_message("arithmetic operation in this statement")
-                                ])
-                        ));
-                    }
+                    _ => report!(
+                        "E1003",
+                        "operands must be numbers",
+                        "arithmetic operation within this statement"
+                    ),
                 }
             }};
         }
-
-        #[rustfmt::skip] macro_rules! arithmetic_calc {
-            ($operator:tt) => { arithmetic!($operator, Number) };
-        }
-
-        #[rustfmt::skip] macro_rules! arithmetic_cmp {
-            ($operator:tt) => { arithmetic!($operator, Boolean) };
-        }
+        #[rustfmt::skip] macro_rules! arithmetic_calc {($operator:tt) => { arithmetic!($operator, Number) };}
+        #[rustfmt::skip] macro_rules! arithmetic_cmp { ($operator:tt) => { arithmetic!($operator, Boolean) };}
 
         loop {
             #[cfg(debug_assertions)]
@@ -111,33 +117,11 @@ impl VirtualMachine {
                     let name = chunk.constants[*index as usize].clone();
                     let name = match name {
                         Constant::String(name) => name,
-                        _ => {
-                            return Err(InterpretError::Simple(
-                                ErrorItem::error()
-                                    .with_code("E1006")
-                                    .with_message("invalid name of global definition")
-                                    .with_labels(vec![Label::secondary(
-                                        chunk.file_id,
-                                        chunk.positions[self.offset].clone(),
-                                    )
-                                    .with_message("global definition within this statement")]),
-                            ))
-                        }
+                        _ => report!("E1006", "invalid name of global definition"),
                     };
                     let value = match self.stack.peek() {
                         Some(value) => value.clone(),
-                        None => {
-                            return Err(InterpretError::Simple(
-                                ErrorItem::error()
-                                    .with_code("E1007")
-                                    .with_message("defining global with empty stack")
-                                    .with_labels(vec![Label::secondary(
-                                        chunk.file_id,
-                                        chunk.positions[self.offset].clone(),
-                                    )
-                                    .with_message("global definition within this statement")]),
-                            ))
-                        }
+                        None => report!("E1007", "defining global with empty stack"),
                     };
                     self.globals.insert(name, value);
                     self.stack.pop()?; // We dont pop first then insert because of GC.
@@ -146,33 +130,11 @@ impl VirtualMachine {
                     let name = chunk.constants[*index as usize].clone();
                     let name = match name {
                         Constant::String(name) => name,
-                        _ => {
-                            return Err(InterpretError::Simple(
-                                ErrorItem::error()
-                                    .with_code("E1006")
-                                    .with_message("invalid name of global definition")
-                                    .with_labels(vec![Label::secondary(
-                                        chunk.file_id,
-                                        chunk.positions[self.offset].clone(),
-                                    )
-                                    .with_message("global definition within this statement")]),
-                            ))
-                        }
+                        _ => report!("E1006", "invalid name of global definition"),
                     };
                     let value = match self.globals.get(&name) {
                         Some(value) => value.clone(),
-                        None => {
-                            return Err(InterpretError::Simple(
-                                ErrorItem::error()
-                                    .with_code("E1008")
-                                    .with_message(format!("undefined global {}", name))
-                                    .with_labels(vec![Label::secondary(
-                                        chunk.file_id,
-                                        chunk.positions[self.offset].clone(),
-                                    )
-                                    .with_message("originated within this statement")]),
-                            ))
-                        }
+                        None => report!("E1008", format!("undefined global {}", name)),
                     };
                     self.stack.push(value)?;
                 }
@@ -180,45 +142,14 @@ impl VirtualMachine {
                     let name = chunk.constants[*index as usize].clone();
                     let name = match name {
                         Constant::String(name) => name,
-                        _ => {
-                            return Err(InterpretError::Simple(
-                                ErrorItem::error()
-                                    .with_code("E1006")
-                                    .with_message("invalid name of global definition")
-                                    .with_labels(vec![Label::secondary(
-                                        chunk.file_id,
-                                        chunk.positions[self.offset].clone(),
-                                    )
-                                    .with_message("global definition within this statement")]),
-                            ))
-                        }
+                        _ => report!("E1006", "invalid name of global definition"),
                     };
                     if !self.globals.contains_key(&name) {
-                        return Err(InterpretError::Simple(
-                            ErrorItem::error()
-                                .with_code("E1008")
-                                .with_message(format!("undefined global {}", name))
-                                .with_labels(vec![Label::secondary(
-                                    chunk.file_id,
-                                    chunk.positions[self.offset].clone(),
-                                )
-                                .with_message("originated within this statement")]),
-                        ));
+                        report!("E1008", format!("undefined global {}", name));
                     }
                     let value = match self.stack.peek() {
                         Some(value) => value.clone(),
-                        None => {
-                            return Err(InterpretError::Simple(
-                                ErrorItem::error()
-                                    .with_code("E1007")
-                                    .with_message("defining global with empty stack")
-                                    .with_labels(vec![Label::secondary(
-                                        chunk.file_id,
-                                        chunk.positions[self.offset].clone(),
-                                    )
-                                    .with_message("originated within this statement")]),
-                            ))
-                        }
+                        None => report!("E1007", "defining global with empty stack"),
                     };
                     self.globals.insert(name, value);
                 }
@@ -248,17 +179,10 @@ impl VirtualMachine {
                                 }
                             }
                         }
-                        _ => {
-                            return Err(InterpretError::Simple(
-                                ErrorItem::error().with_code("E1005").with_message(
-                                    "concatenation operands must be both numbers or both strings.",
-                                ).with_labels(vec![Label::secondary(
-                                        chunk.file_id,
-                                        chunk.positions[self.offset].clone(),
-                                    )
-                                    .with_message("concatenation within this statement")]),
-                            ));
-                        }
+                        _ => report!(
+                            "E1005",
+                            "concatenation operands must be both numbers or both strings."
+                        ),
                     }
                 }
                 Instruction::Subtract => arithmetic_calc!(-),
@@ -266,18 +190,11 @@ impl VirtualMachine {
                 Instruction::Divide => arithmetic_calc!(/),
                 Instruction::Negate => match self.stack.pop()? {
                     Value::Number(number) => self.stack.push(Value::Number(-number))?,
-                    _ => {
-                        return Err(InterpretError::Simple(
-                            ErrorItem::error()
-                                .with_code("E1004")
-                                .with_message("operand must be number")
-                                .with_labels(vec![Label::secondary(
-                                    chunk.file_id,
-                                    chunk.positions[self.offset].clone(),
-                                )
-                                .with_message("arithmetic negation within this statement")]),
-                        ));
-                    }
+                    _ => report!(
+                        "E1004",
+                        "operand must be number",
+                        "arithmetic negation within this statement"
+                    ),
                 },
 
                 // Logic instructions.

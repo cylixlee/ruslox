@@ -92,17 +92,11 @@ impl<'a> Compiler<'a> {
                             self.emit(Instruction::SetGlobal(index));
                         }
                         _ => {
-                            return Err(InterpretError::Simple(
-                                ErrorItem::error()
-                                    .with_code("E0008")
-                                    .with_message("invalid assignment target")
-                                    .with_labels(vec![Label::secondary(
-                                        self.file_id,
-                                        self.parsed_context.positions[self.current_statement]
-                                            .clone(),
-                                    )
-                                    .with_message("assignment started here")]),
-                            ))
+                            return self.report(
+                                "E0008",
+                                "invalid assignment target",
+                                "assignment within this statement",
+                            )
                         }
                     }
                 } else {
@@ -118,16 +112,13 @@ impl<'a> Compiler<'a> {
         let index = match self.chunk.add_constant(constant) {
             Some(index) => index,
             None => {
-                return Err(InterpretError::Simple(
-                    ErrorItem::error()
-                        .with_code("E0001")
-                        .with_message("too many constants in one chunk")
-                        .with_labels(vec![Label::secondary(
-                            self.file_id,
-                            self.parsed_context.positions[self.current_statement].clone(),
-                        )
-                        .with_message("originated from this statement")]),
-                ));
+                return self
+                    .report(
+                        "E0001",
+                        "too many constants in one chunk",
+                        "error originated within this statement",
+                    )
+                    .map(|_| Default::default());
             }
         };
         Ok(index)
@@ -138,6 +129,25 @@ impl<'a> Compiler<'a> {
             instruction,
             self.parsed_context.positions[self.current_statement].clone(),
         );
+    }
+
+    #[inline(always)]
+    fn report(
+        &self,
+        code: impl Into<String>,
+        message: impl Into<String>,
+        label: impl Into<String>,
+    ) -> InterpretResult {
+        Err(InterpretError::Simple(
+            ErrorItem::error()
+                .with_code(code)
+                .with_message(message)
+                .with_labels(vec![Label::secondary(
+                    self.file_id,
+                    self.parsed_context.positions[self.current_statement].clone(),
+                )
+                .with_message(label)]),
+        ))
     }
 }
 

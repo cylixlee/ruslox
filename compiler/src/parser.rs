@@ -5,6 +5,7 @@ use shared::error::{ErrorItem, InterpretError, InterpretResult, Label};
 use crate::scanner::{ScannedContext, Token};
 
 pub struct ParsedContext<'a> {
+    file_id: usize,
     pub statements: Vec<Statement<'a>>,
     pub positions: Vec<Range<usize>>,
     pub errors: Vec<ErrorItem>,
@@ -12,8 +13,9 @@ pub struct ParsedContext<'a> {
 }
 
 impl<'a> ParsedContext<'a> {
-    fn new() -> Self {
+    fn new(file_id: usize) -> Self {
         Self {
+            file_id,
             statements: Vec::new(),
             positions: Vec::new(),
             errors: Vec::new(),
@@ -26,9 +28,46 @@ impl<'a> ParsedContext<'a> {
         self.positions.push(position);
     }
 
-    fn report(&mut self, error: ErrorItem) {
+    fn report(
+        &mut self,
+        token_position: Range<usize>,
+        code: impl Into<String>,
+        message: impl Into<String>,
+        label: impl Into<String>,
+    ) {
+        self.report_error(token_position, code, message, label, None);
+    }
+
+    fn report_noted(
+        &mut self,
+        token_position: Range<usize>,
+        code: impl Into<String>,
+        message: impl Into<String>,
+        label: impl Into<String>,
+        note: impl Into<String>,
+    ) {
+        self.report_error(token_position, code, message, label, Some(note.into()));
+    }
+
+    fn report_error(
+        &mut self,
+        token_position: Range<usize>,
+        code: impl Into<String>,
+        message: impl Into<String>,
+        label: impl Into<String>,
+        note: Option<String>,
+    ) {
         if !self.panic_mode {
-            self.errors.push(error);
+            let mut error_item = ErrorItem::error()
+                .with_code(code)
+                .with_message(message)
+                .with_labels(vec![
+                    Label::secondary(self.file_id, token_position).with_message(label)
+                ]);
+            if let Some(note) = note {
+                error_item = error_item.with_notes(vec![note]);
+            }
+            self.errors.push(error_item);
             self.panic_mode = true;
         }
     }
@@ -57,26 +96,28 @@ pub enum Statement<'a> {
     Error,
 }
 
-peg::parser!(grammar pegparser(file_id: usize, ranges: &Vec<Range<usize>>, context: &RefCell<ParsedContext<'input>>) for ScannedContext {
+peg::parser!(grammar pegparser(
+    file_id: usize,
+    token_positions: &Vec<Range<usize>>,
+    context: &RefCell<ParsedContext<'input>>
+) for ScannedContext {
 
     pub rule declarations()
         = declaration()*
 
     rule declaration()
         = start:position!() s:recognized_declaration() {
-            context.borrow_mut().record(s, ranges[start].clone());
+            context.borrow_mut().record(s, token_positions[start].clone());
         }
         / start:position!() s:recognized_statement() {
-            context.borrow_mut().record(s, ranges[start].clone());
+            context.borrow_mut().record(s, token_positions[start].clone());
         }
         / pos:position!() ![Token::Semicolon] [_]+ [Token::Semicolon]? {
-            context.borrow_mut().report(ErrorItem::error()
-                .with_code("E0005")
-                .with_message("unrecognized statement")
-                .with_labels(vec![
-                    Label::primary(file_id, ranges[pos].clone())
-                        .with_message("statement starting from here is unrecognizable")
-                ])
+            context.borrow_mut().report(
+                token_positions[pos].clone(),
+                "E0005",
+                "unrecognized statement",
+                "statement starting from here is unrecognizable",
             );
             context.borrow_mut().panic_mode = false;
         }
@@ -101,13 +142,11 @@ peg::parser!(grammar pegparser(file_id: usize, ranges: &Vec<Range<usize>>, conte
     rule variable_name() -> Option<&'input String>
         = [Token::Identifier(identifier)] { Some(identifier) }
         / pos:position!() {
-            context.borrow_mut().report(ErrorItem::error()
-                .with_code("E0007")
-                .with_message("missing variable name")
-                .with_labels(vec![
-                    Label::primary(file_id, ranges[pos - 1].clone())
-                        .with_message("expected variable name after this")
-                ])
+            context.borrow_mut().report(
+                token_positions[pos - 1].clone(),
+                "E0007",
+                "missing variable name",
+                "expected variable name after this",
             );
             None
         }
@@ -121,14 +160,12 @@ peg::parser!(grammar pegparser(file_id: usize, ranges: &Vec<Range<usize>>, conte
     rule must_consume(token: Token)
         = [t if mem::discriminant(t) == mem::discriminant(&token)]
         / pos:position!() {
-            context.borrow_mut().report(ErrorItem::error()
-                .with_code("E0006")
-                .with_message("missing specific token")
-                .with_labels(vec![
-                    Label::primary(file_id, ranges[pos - 1].clone())
-                        .with_message(format!("expected {} after this", token))
-                ])
-                .with_notes(vec![format!("try adding {} or re-checking the code logic here", token)])
+            context.borrow_mut().report_noted(
+                token_positions[pos - 1].clone(),
+                "E0006",
+                "missing specific token",
+                format!("expected {} after this", token),
+                format!("try adding {} or re-checking the code logic here", token)
             );
         }
 
@@ -159,7 +196,7 @@ peg::parser!(grammar pegparser(file_id: usize, ranges: &Vec<Range<usize>>, conte
 });
 
 pub fn parse(file_id: usize, scanned: &ScannedContext) -> InterpretResult<ParsedContext> {
-    let context = RefCell::new(ParsedContext::new());
+    let context = RefCell::new(ParsedContext::new(file_id));
     pegparser::declarations(scanned, file_id, &scanned.positions, &context)
         .expect("internal parse error");
     let context = RefCell::into_inner(context);
