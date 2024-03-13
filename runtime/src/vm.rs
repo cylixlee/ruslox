@@ -4,11 +4,11 @@ use shared::{
     chunk::{Chunk, Instruction},
     constant::Constant,
     error::{ErrorItem, InterpretError, InterpretResult, Label},
+    stack::Stack,
 };
 
 use crate::{
     object::{Downcast, FromUnmanaged, ManagedReference, ObjectType, StringObject},
-    stack::Stack,
     value::Value,
 };
 
@@ -150,6 +150,22 @@ impl VirtualMachine {
                         None => report!("E1007", "defining global with empty stack"),
                     };
                     self.globals.insert(name, value);
+                }
+                Instruction::GetLocal(index) => {
+                    let index = *index as usize;
+                    if index >= self.stack.len() {
+                        report!("E1009", "get local with empty stack");
+                    }
+                    let local = self.stack[index].clone();
+                    self.stack.push(local)?;
+                }
+                Instruction::SetLocal(index) => {
+                    let index = *index as usize;
+                    if index < self.stack.len() {
+                        self.stack[index] = self.stack.peek().unwrap().clone();
+                    } else {
+                        report!("E1010", "set local with empty stack");
+                    }
                 }
 
                 // Literal instructions.

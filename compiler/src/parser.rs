@@ -50,6 +50,7 @@ pub enum Statement<'a> {
     VarDeclaration(&'a String, Option<Box<Expression<'a>>>),
     Print(Box<Expression<'a>>),
     Expressional(Box<Expression<'a>>),
+    Block(Vec<Statement<'a>>),
 
     // Special variant for error recovery.
     Error,
@@ -62,16 +63,18 @@ peg::parser!(grammar pegparser(
 ) for ScannedContext {
 
     pub rule declarations()
-        = declaration()*
+        = ds:declaration()* {
+            for (position, statement) in ds {
+                context.borrow_mut().record(statement, token_positions[position].clone());
+            }
+        }
 
-    rule declaration()
-        = start:position!() s:recognized_declaration() {
-            context.borrow_mut().record(s, token_positions[start].clone());
-        }
-        / start:position!() s:recognized_statement() {
-            context.borrow_mut().record(s, token_positions[start].clone());
-        }
-        / pos:position!() ![Token::Semicolon] [_]+ [Token::Semicolon]? {
+    rule declaration() -> (usize, Statement<'input>)
+        = start:position!() s:recognized_declaration() { (start, s) }
+        / start:position!() s:recognized_statement() { (start, s) }
+        / pos:position!()
+         ![Token::Semicolon | Token::LeftBrace | Token::RightBrace | Token::Var]
+          [t]+ [Token::Semicolon]? {
             context.borrow_mut().report(
                 ErrorItem::error()
                     .with_code("E0005")
@@ -82,6 +85,7 @@ peg::parser!(grammar pegparser(
                     ])
             );
             context.borrow_mut().panic_mode = false;
+            (pos, Statement::Error)
         }
 
     rule recognized_declaration() -> Statement<'input>
@@ -121,6 +125,10 @@ peg::parser!(grammar pegparser(
             Statement::Print(Box::new(e))
         }
         / e:expression() must_consume(Token::Semicolon) { Statement::Expressional(Box::new(e)) }
+        / [Token::LeftBrace] ds:declaration()* must_consume(Token::RightBrace) {
+            println!("in block");
+            Statement::Block(ds.into_iter().map(|(_, statement)| statement).collect())
+        }
 
     rule must_consume(token: Token)
         = [t if mem::discriminant(t) == mem::discriminant(&token)]

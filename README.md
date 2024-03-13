@@ -51,3 +51,5 @@ The error code concept is introduced with `codespan-reporting` as the supporting
 - `E1006`: invalid name of global definition
 - `E1007`: defining global with empty stack
 - `E1008`: undefined global
+- `E1009`: get local with empty stack slot
+- `E1010`: set local with empty stack slot

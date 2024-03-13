@@ -4,16 +4,24 @@ use shared::{
     chunk::{Chunk, Instruction},
     constant::Constant,
     error::{ErrorItem, InterpretError, InterpretResult, Label},
+    stack::Stack,
 };
 
 mod parser;
 mod scanner;
+
+struct Local {
+    depth: usize,
+    name: String,
+}
 
 struct Compiler<'a> {
     file_id: usize,
     parsed_context: &'a ParsedContext<'a>,
     chunk: &'a mut Chunk,
     current_statement: usize,
+    locals: Stack<Local>,
+    local_depth: usize,
 }
 
 impl<'a> Compiler<'a> {
@@ -23,6 +31,8 @@ impl<'a> Compiler<'a> {
             parsed_context,
             chunk,
             current_statement: 0,
+            locals: Stack::new(),
+            local_depth: 0,
         }
     }
 
@@ -37,12 +47,20 @@ impl<'a> Compiler<'a> {
     fn emit_statement(&mut self, statement: &Statement) -> InterpretResult {
         match statement {
             Statement::VarDeclaration(name, initializer) => {
-                let index = self.emit_constant(Constant::String((*name).clone()))?;
                 match initializer {
                     Some(expression) => self.emit_expression(expression)?,
                     None => self.emit(Instruction::Nil),
                 };
-                self.emit(Instruction::DefineGlobal(index));
+                let index = self.emit_constant(Constant::String((*name).clone()))?;
+                match self.local_depth {
+                    0 => self.emit(Instruction::DefineGlobal(index)),
+                    _ => {
+                        self.locals.push(Local {
+                            depth: self.local_depth,
+                            name: (*name).clone(),
+                        })?;
+                    }
+                }
             }
             Statement::Print(expression) => {
                 self.emit_expression(expression)?;
@@ -53,6 +71,19 @@ impl<'a> Compiler<'a> {
                 self.emit(Instruction::Pop);
             }
             Statement::Error => unreachable!("still trying to emit after reporting diagnostics"),
+            Statement::Block(statements) => {
+                self.local_depth += 1;
+                for statement in statements {
+                    self.emit_statement(statement)?;
+                }
+                while let Some(local) = self.locals.peek() {
+                    if local.depth == self.local_depth {
+                        self.emit(Instruction::Pop);
+                        self.locals.pop()?;
+                    }
+                }
+                self.local_depth -= 1;
+            }
         }
         Ok(())
     }
@@ -69,7 +100,18 @@ impl<'a> Compiler<'a> {
             }
             Expression::Identifier(identifier) => {
                 let index = self.emit_constant(Constant::String((*identifier).clone()))?;
-                self.emit(Instruction::GetGlobal(index));
+                let mut is_local = false;
+                for slot in (0..self.locals.len()).rev() {
+                    let local = &self.locals[slot];
+                    if local.name == **identifier {
+                        self.emit(Instruction::GetLocal(slot as u8));
+                        is_local = true;
+                        break;
+                    }
+                }
+                if !is_local {
+                    self.emit(Instruction::GetGlobal(index));
+                }
             }
             Expression::True => self.emit(Instruction::True),
             Expression::False => self.emit(Instruction::False),
@@ -89,7 +131,18 @@ impl<'a> Compiler<'a> {
                             let index =
                                 self.emit_constant(Constant::String((*identifier).clone()))?;
                             self.emit_expression(&right)?;
-                            self.emit(Instruction::SetGlobal(index));
+                            let mut is_local = false;
+                            for slot in (0..self.locals.len()).rev() {
+                                let local = &self.locals[slot];
+                                if local.name == **identifier {
+                                    self.emit(Instruction::SetLocal(slot as u8));
+                                    is_local = true;
+                                    break;
+                                }
+                            }
+                            if !is_local {
+                                self.emit(Instruction::SetGlobal(index));
+                            }
                         }
                         _ => {
                             return self.report(
@@ -102,6 +155,28 @@ impl<'a> Compiler<'a> {
                 } else {
                     self.emit_expression(&left)?;
                     self.emit_expression(&right)?;
+                    match operator {
+                        Token::Plus => self.emit(Instruction::Add),
+                        Token::Minus => self.emit(Instruction::Subtract),
+                        Token::Star => self.emit(Instruction::Multiply),
+                        Token::Slash => self.emit(Instruction::Multiply),
+                        Token::Greater => self.emit(Instruction::Greater),
+                        Token::Less => self.emit(Instruction::Less),
+                        Token::EqualEqual => self.emit(Instruction::Equal),
+                        Token::GreaterEqual => {
+                            self.emit(Instruction::Less);
+                            self.emit(Instruction::Not);
+                        }
+                        Token::LessEqual => {
+                            self.emit(Instruction::Greater);
+                            self.emit(Instruction::Not);
+                        }
+                        Token::BangEqual => {
+                            self.emit(Instruction::Equal);
+                            self.emit(Instruction::Not);
+                        }
+                        _ => unreachable!("emit failure due to parse error at binary expressions."),
+                    }
                 }
             }
         }

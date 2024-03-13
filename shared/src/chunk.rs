@@ -6,6 +6,7 @@ use crate::constant::Constant;
 pub enum Instruction {
     // Instructions with operand.
     Constant(u8), DefineGlobal(u8), GetGlobal(u8), SetGlobal(u8),
+    GetLocal(u8), SetLocal(u8), 
 
     // Literal instructions.
     Nil, True, False,
@@ -68,6 +69,8 @@ impl Chunk {
             Instruction::DefineGlobal(index) => constant_instruction("DEFINEGLOBAL", index, self),
             Instruction::GetGlobal(index) => constant_instruction("GETGLOBAL", index, self),
             Instruction::SetGlobal(index) => constant_instruction("SETGLOBAL", index, self),
+            Instruction::GetLocal(index) => byte_instruction("GETLOCAL", index),
+            Instruction::SetLocal(index) => byte_instruction("SETLOCAL", index),
 
             // Literal instructions.
             Instruction::Nil => simple_instruction("NIL"),
@@ -106,4 +109,8 @@ fn constant_instruction(name: impl AsRef<str>, constant_index: &u8, chunk: &Chun
         constant_index,
         chunk.constants[*constant_index as usize]
     );
+}
+
+fn byte_instruction(name: impl AsRef<str>, constant_index: &u8) {
+    println!("{:<16} {:4}", name.as_ref(), constant_index);
 }

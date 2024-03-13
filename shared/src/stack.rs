@@ -4,11 +4,11 @@ use std::{
     ptr,
 };
 
-use shared::error::{ErrorItem, InterpretError, InterpretResult};
+use crate::error::{ErrorItem, InterpretError, InterpretResult};
 
-use crate::STACK_CAPACITY;
+const DEFAULT_STACK_CAPACITY: usize = u8::MAX as usize + 1;
 
-pub struct Stack<T, const N: usize = STACK_CAPACITY> {
+pub struct Stack<T, const N: usize = DEFAULT_STACK_CAPACITY> {
     data: [ManuallyDrop<T>; N],
     top: usize,
 }
