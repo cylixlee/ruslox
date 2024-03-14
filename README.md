@@ -9,6 +9,7 @@ Ruslox is the Rust implementation of Lox language, with some difference from the
   - [Personal Thinking](#personal-thinking)
     - [PEG and Error Recovery](#peg-and-error-recovery)
   - [Error Codes](#error-codes)
+  - [Acknowledgements](#acknowledgements)
 
 ## Project Structure
 After deleting and re-creating the project multiple times, I've found the necessity and convenience of (virtual) workspaces using Cargo. With proper separation of code, we can avoid *refactor hell* in many cases.
@@ -103,3 +104,10 @@ This problem does not show up in hand-written recursive descent parsers, which o
 The error code concept is introduced with `codespan-reporting` as the supporting crate. Instead of simply `printf` the error message and line number into the `stdout` / `stderr` stream in `clox`, Ruslox generates diagnostics with messages, notes, and labels pointing the position of compile errors in source. Error codes can help locating the potential internal problems in the meantime.
 
 About all possible error codes Ruslox may report, please see [Error Codes](./Error%20Codes.md).
+
+## Acknowledgements
+Learning and crafting compilers and interpreters (VMs) makes a lot of fun, but it may be a little bit frustrating when you're newcomers. There're some of my friends who helped me to overcome the learning curve and offered many useful ideas (with no particularly order):
+- [KumaWang](https://github.com/KumaWang)
+- [ScSofts](https://github.com/ScSofts)
+
+And many developers who did not publish any projects on GitHub yet. I'm **very** grateful to you all. Thank you.
