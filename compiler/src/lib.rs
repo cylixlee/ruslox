@@ -1,3 +1,5 @@
+use std::ops::Range;
+
 use parser::{Expression, ParsedContext, Statement};
 use scanner::Token;
 use shared::{
@@ -19,7 +21,6 @@ struct Compiler<'a> {
     file_id: usize,
     parsed_context: &'a ParsedContext<'a>,
     chunk: &'a mut Chunk,
-    current_statement: usize,
     locals: Stack<Local>,
     local_depth: usize,
 }
@@ -30,30 +31,39 @@ impl<'a> Compiler<'a> {
             file_id,
             parsed_context,
             chunk,
-            current_statement: 0,
             locals: Stack::new(),
             local_depth: 0,
         }
     }
 
     fn compile(&mut self) -> InterpretResult {
-        for statement in &self.parsed_context.statements {
-            self.emit_statement(statement)?;
-            self.current_statement += 1;
+        for (statement, position) in self
+            .parsed_context
+            .statements
+            .iter()
+            .zip(self.parsed_context.positions.iter())
+        {
+            self.emit_statement(statement, position)?;
         }
         Ok(())
     }
 
-    fn emit_statement(&mut self, statement: &Statement) -> InterpretResult {
+    fn emit_statement(
+        &mut self,
+        statement: &Statement,
+        position: &Range<usize>,
+    ) -> InterpretResult {
         match statement {
             Statement::VarDeclaration(name, initializer) => {
                 match initializer {
-                    Some(expression) => self.emit_expression(expression)?,
-                    None => self.emit(Instruction::Nil),
+                    Some(expression) => self.emit_expression(expression, position)?,
+                    None => self.chunk.write(Instruction::Nil, position.clone()),
                 };
-                let index = self.emit_constant(Constant::String((*name).clone()))?;
+                let index = self.emit_constant(Constant::String((*name).clone()), position)?;
                 match self.local_depth {
-                    0 => self.emit(Instruction::DefineGlobal(index)),
+                    0 => self
+                        .chunk
+                        .write(Instruction::DefineGlobal(index), position.clone()),
                     _ => {
                         self.locals.push(Local {
                             depth: self.local_depth,
@@ -63,22 +73,22 @@ impl<'a> Compiler<'a> {
                 }
             }
             Statement::Print(expression) => {
-                self.emit_expression(expression)?;
-                self.emit(Instruction::Print);
+                self.emit_expression(expression, position)?;
+                self.chunk.write(Instruction::Print, position.clone());
             }
             Statement::Expressional(expression) => {
-                self.emit_expression(expression)?;
-                self.emit(Instruction::Pop);
+                self.emit_expression(expression, position)?;
+                self.chunk.write(Instruction::Pop, position.clone());
             }
             Statement::Error => unreachable!("still trying to emit after reporting diagnostics"),
-            Statement::Block(statements) => {
+            Statement::Block(statements, positions) => {
                 self.local_depth += 1;
-                for statement in statements {
-                    self.emit_statement(statement)?;
+                for (statement, position) in statements.iter().zip(positions) {
+                    self.emit_statement(statement, position)?;
                 }
                 while let Some(local) = self.locals.peek() {
                     if local.depth == self.local_depth {
-                        self.emit(Instruction::Pop);
+                        self.chunk.write(Instruction::Pop, position.clone());
                         self.locals.pop()?;
                     }
                 }
@@ -88,39 +98,48 @@ impl<'a> Compiler<'a> {
         Ok(())
     }
 
-    fn emit_expression(&mut self, expression: &Expression) -> InterpretResult {
+    fn emit_expression(
+        &mut self,
+        expression: &Expression,
+        position: &Range<usize>,
+    ) -> InterpretResult {
         match expression {
             Expression::String(string) => {
-                let index = self.emit_constant(Constant::String((*string).clone()))?;
-                self.emit(Instruction::Constant(index));
+                let index = self.emit_constant(Constant::String((*string).clone()), position)?;
+                self.chunk
+                    .write(Instruction::Constant(index), position.clone());
             }
             Expression::Number(number) => {
-                let index = self.emit_constant(Constant::Number(*number))?;
-                self.emit(Instruction::Constant(index));
+                let index = self.emit_constant(Constant::Number(*number), position)?;
+                self.chunk
+                    .write(Instruction::Constant(index), position.clone());
             }
             Expression::Identifier(identifier) => {
-                let index = self.emit_constant(Constant::String((*identifier).clone()))?;
+                let index =
+                    self.emit_constant(Constant::String((*identifier).clone()), position)?;
                 let mut is_local = false;
                 for slot in (0..self.locals.len()).rev() {
                     let local = &self.locals[slot];
                     if local.name == **identifier {
-                        self.emit(Instruction::GetLocal(slot as u8));
+                        self.chunk
+                            .write(Instruction::GetLocal(slot as u8), position.clone());
                         is_local = true;
                         break;
                     }
                 }
                 if !is_local {
-                    self.emit(Instruction::GetGlobal(index));
+                    self.chunk
+                        .write(Instruction::GetGlobal(index), position.clone());
                 }
             }
-            Expression::True => self.emit(Instruction::True),
-            Expression::False => self.emit(Instruction::False),
-            Expression::Nil => self.emit(Instruction::Nil),
+            Expression::True => self.chunk.write(Instruction::True, position.clone()),
+            Expression::False => self.chunk.write(Instruction::False, position.clone()),
+            Expression::Nil => self.chunk.write(Instruction::Nil, position.clone()),
             Expression::Unary(operator, expression) => {
-                self.emit_expression(expression)?;
+                self.emit_expression(expression, position)?;
                 match operator {
-                    Token::Minus => self.emit(Instruction::Negate),
-                    Token::Bang => self.emit(Instruction::Not),
+                    Token::Minus => self.chunk.write(Instruction::Negate, position.clone()),
+                    Token::Bang => self.chunk.write(Instruction::Not, position.clone()),
                     _ => unreachable!("emit failure due to parse error at unary expressions."),
                 }
             }
@@ -128,24 +147,27 @@ impl<'a> Compiler<'a> {
                 if let Token::Equal = operator {
                     match &**left {
                         Expression::Identifier(identifier) => {
-                            let index =
-                                self.emit_constant(Constant::String((*identifier).clone()))?;
-                            self.emit_expression(&right)?;
+                            let index = self
+                                .emit_constant(Constant::String((*identifier).clone()), position)?;
+                            self.emit_expression(&right, position)?;
                             let mut is_local = false;
                             for slot in (0..self.locals.len()).rev() {
                                 let local = &self.locals[slot];
                                 if local.name == **identifier {
-                                    self.emit(Instruction::SetLocal(slot as u8));
+                                    self.chunk
+                                        .write(Instruction::SetLocal(slot as u8), position.clone());
                                     is_local = true;
                                     break;
                                 }
                             }
                             if !is_local {
-                                self.emit(Instruction::SetGlobal(index));
+                                self.chunk
+                                    .write(Instruction::SetGlobal(index), position.clone());
                             }
                         }
                         _ => {
                             return self.report(
+                                position,
                                 "E0008",
                                 "invalid assignment target",
                                 "assignment within this statement",
@@ -153,27 +175,27 @@ impl<'a> Compiler<'a> {
                         }
                     }
                 } else {
-                    self.emit_expression(&left)?;
-                    self.emit_expression(&right)?;
+                    self.emit_expression(&left, position)?;
+                    self.emit_expression(&right, position)?;
                     match operator {
-                        Token::Plus => self.emit(Instruction::Add),
-                        Token::Minus => self.emit(Instruction::Subtract),
-                        Token::Star => self.emit(Instruction::Multiply),
-                        Token::Slash => self.emit(Instruction::Multiply),
-                        Token::Greater => self.emit(Instruction::Greater),
-                        Token::Less => self.emit(Instruction::Less),
-                        Token::EqualEqual => self.emit(Instruction::Equal),
+                        Token::Plus => self.chunk.write(Instruction::Add, position.clone()),
+                        Token::Minus => self.chunk.write(Instruction::Subtract, position.clone()),
+                        Token::Star => self.chunk.write(Instruction::Multiply, position.clone()),
+                        Token::Slash => self.chunk.write(Instruction::Multiply, position.clone()),
+                        Token::Greater => self.chunk.write(Instruction::Greater, position.clone()),
+                        Token::Less => self.chunk.write(Instruction::Less, position.clone()),
+                        Token::EqualEqual => self.chunk.write(Instruction::Equal, position.clone()),
                         Token::GreaterEqual => {
-                            self.emit(Instruction::Less);
-                            self.emit(Instruction::Not);
+                            self.chunk.write(Instruction::Less, position.clone());
+                            self.chunk.write(Instruction::Not, position.clone());
                         }
                         Token::LessEqual => {
-                            self.emit(Instruction::Greater);
-                            self.emit(Instruction::Not);
+                            self.chunk.write(Instruction::Greater, position.clone());
+                            self.chunk.write(Instruction::Not, position.clone());
                         }
                         Token::BangEqual => {
-                            self.emit(Instruction::Equal);
-                            self.emit(Instruction::Not);
+                            self.chunk.write(Instruction::Equal, position.clone());
+                            self.chunk.write(Instruction::Not, position.clone());
                         }
                         _ => unreachable!("emit failure due to parse error at binary expressions."),
                     }
@@ -183,32 +205,30 @@ impl<'a> Compiler<'a> {
         Ok(())
     }
 
-    fn emit_constant(&mut self, constant: Constant) -> InterpretResult<u8> {
+    fn emit_constant(
+        &mut self,
+        constant: Constant,
+        position: &Range<usize>,
+    ) -> InterpretResult<u8> {
         let index = match self.chunk.add_constant(constant) {
             Some(index) => index,
             None => {
-                return self
-                    .report(
-                        "E0001",
-                        "too many constants in one chunk",
-                        "error originated within this statement",
-                    )
-                    .map(|_| Default::default());
+                return Err(InterpretError::Simple(
+                    ErrorItem::error()
+                        .with_code("E0001")
+                        .with_message("too many constants in one chunk")
+                        .with_labels(vec![Label::secondary(self.file_id, position.clone())
+                            .with_message("error originated within this statement")]),
+                ))
             }
         };
         Ok(index)
     }
 
-    fn emit(&mut self, instruction: Instruction) {
-        self.chunk.write(
-            instruction,
-            self.parsed_context.positions[self.current_statement].clone(),
-        );
-    }
-
     #[inline(always)]
     fn report(
         &self,
+        position: &Range<usize>,
         code: impl Into<String>,
         message: impl Into<String>,
         label: impl Into<String>,
@@ -217,11 +237,9 @@ impl<'a> Compiler<'a> {
             ErrorItem::error()
                 .with_code(code)
                 .with_message(message)
-                .with_labels(vec![Label::secondary(
-                    self.file_id,
-                    self.parsed_context.positions[self.current_statement].clone(),
-                )
-                .with_message(label)]),
+                .with_labels(vec![
+                    Label::secondary(self.file_id, position.clone()).with_message(label)
+                ]),
         ))
     }
 }

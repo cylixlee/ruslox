@@ -50,7 +50,7 @@ pub enum Statement<'a> {
     VarDeclaration(&'a String, Option<Box<Expression<'a>>>),
     Print(Box<Expression<'a>>),
     Expressional(Box<Expression<'a>>),
-    Block(Vec<Statement<'a>>),
+    Block(Vec<Statement<'a>>, Vec<Range<usize>>),
 
     // Special variant for error recovery.
     Error,
@@ -63,15 +63,13 @@ peg::parser!(grammar pegparser(
 ) for ScannedContext {
 
     pub rule declarations()
-        = ds:top_declaration()* {
-            for (position, statement) in ds {
-                context.borrow_mut().record(statement, token_positions[position].clone());
-            }
-        }
+        = ds:top_declaration()*
 
-    rule top_declaration() -> (usize, Statement<'input>)
-        = start:position!() s:recognized_declaration() { (start, s) }
-        / start:position!() s:recognized_statement() { (start, s) }
+    rule top_declaration()
+        = pos:position!() s:var_declaration() { context.borrow_mut().record(s, token_positions[pos].clone()) }
+        / pos:position!() s:print_statement() { context.borrow_mut().record(s, token_positions[pos].clone()) }
+        / pos:position!() s:expression_statement() { context.borrow_mut().record(s, token_positions[pos].clone()) }
+        / pos:position!() s:block_statement() { context.borrow_mut().record(s, token_positions[pos].clone()) }
         / pos:position!() ![
             Token::Semicolon |
             Token::LeftBrace |
@@ -87,12 +85,14 @@ peg::parser!(grammar pegparser(
                     ])
             );
             context.borrow_mut().panic_mode = false;
-            (pos, Statement::Error)
+            context.borrow_mut().record(Statement::Error, token_positions[pos].clone());
         }
 
-    rule inblock_declaration() -> (usize, Statement<'input>)
-        = start:position!() s:recognized_declaration() { (start, s) }
-        / start:position!() s:recognized_statement() { (start, s) }
+    rule inblock_declaration() -> (Statement<'input>, Range<usize>)
+        = start:position!() s:var_declaration() { (s, token_positions[start].clone()) }
+        / start:position!() s:print_statement() { (s, token_positions[start].clone()) }
+        / start:position!() s:expression_statement() { (s, token_positions[start].clone()) }
+        / start:position!() s:block_statement() { (s, token_positions[start].clone()) }
         / pos:position!() ![Token::RightBrace] ![
             Token::Semicolon |
             Token::LeftBrace |
@@ -108,11 +108,8 @@ peg::parser!(grammar pegparser(
                     ])
             );
             context.borrow_mut().panic_mode = false;
-            (pos, Statement::Error)
+            (Statement::Error, token_positions[pos].clone())
         }
-
-    rule recognized_declaration() -> Statement<'input>
-        = var_declaration()
 
     rule var_declaration() -> Statement<'input>
         = [Token::Var] name:variable_name() [Token::Equal] init:expression() must_consume(Token::Semicolon) {
@@ -143,13 +140,23 @@ peg::parser!(grammar pegparser(
             None
         }
 
-    rule recognized_statement() -> Statement<'input>
+    rule print_statement() -> Statement<'input>
         = [Token::Print] e:expression() must_consume(Token::Semicolon) {
             Statement::Print(Box::new(e))
         }
-        / e:expression() must_consume(Token::Semicolon) { Statement::Expressional(Box::new(e)) }
-        / [Token::LeftBrace] ds:inblock_declaration()* must_consume(Token::RightBrace) {
-            Statement::Block(ds.into_iter().map(|(_, statement)| statement).collect())
+
+    rule expression_statement() -> Statement<'input>
+        = e:expression() must_consume(Token::Semicolon) { Statement::Expressional(Box::new(e)) }
+
+    rule block_statement() -> Statement<'input>
+        = [Token::LeftBrace] ds:inblock_declaration()* must_consume(Token::RightBrace) {
+            let mut statements = Vec::new();
+            let mut positions = Vec::new();
+            for (statement, position) in ds {
+                statements.push(statement);
+                positions.push(position);
+            }
+            Statement::Block(statements, positions)
         }
 
     rule must_consume(token: Token)
