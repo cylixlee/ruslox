@@ -1,4 +1,4 @@
-use std::ops::Range;
+use std::{fmt::Display, ops::Range};
 
 use crate::constant::Constant;
 
@@ -6,7 +6,7 @@ use crate::constant::Constant;
 pub enum Instruction {
     // Instructions with operand.
     Constant(u8), DefineGlobal(u8), GetGlobal(u8), SetGlobal(u8),
-    GetLocal(u8), SetLocal(u8), 
+    GetLocal(u8), SetLocal(u8), JumpFalse(u16), Jump(u16), Loop(u16),
 
     // Literal instructions.
     Nil, True, False,
@@ -43,6 +43,10 @@ impl Chunk {
         self.positions.push(position);
     }
 
+    pub fn backpatch(&mut self, offset: usize, instruction: Instruction) {
+        self.code[offset] = instruction;
+    }
+
     pub fn add_constant(&mut self, value: Constant) -> Option<u8> {
         if self.constants.len() >= u8::MAX as usize + 1 {
             return None;
@@ -69,8 +73,11 @@ impl Chunk {
             Instruction::DefineGlobal(index) => constant_instruction("DEFINEGLOBAL", index, self),
             Instruction::GetGlobal(index) => constant_instruction("GETGLOBAL", index, self),
             Instruction::SetGlobal(index) => constant_instruction("SETGLOBAL", index, self),
-            Instruction::GetLocal(index) => byte_instruction("GETLOCAL", index),
-            Instruction::SetLocal(index) => byte_instruction("SETLOCAL", index),
+            Instruction::GetLocal(index) => offset_instruction("GETLOCAL", index),
+            Instruction::SetLocal(index) => offset_instruction("SETLOCAL", index),
+            Instruction::JumpFalse(offset) => offset_instruction("JMPFALSE", offset),
+            Instruction::Jump(offset) => offset_instruction("JUMP", offset),
+            Instruction::Loop(offset) => offset_instruction("LOOP", offset),
 
             // Literal instructions.
             Instruction::Nil => simple_instruction("NIL"),
@@ -111,6 +118,6 @@ fn constant_instruction(name: impl AsRef<str>, constant_index: &u8, chunk: &Chun
     );
 }
 
-fn byte_instruction(name: impl AsRef<str>, constant_index: &u8) {
-    println!("{:<16} {:4}", name.as_ref(), constant_index);
+fn offset_instruction<N: Display + Copy>(name: impl AsRef<str>, offset: &N) {
+    println!("{:<16} {:4}", name.as_ref(), offset);
 }

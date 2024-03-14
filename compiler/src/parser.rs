@@ -43,14 +43,34 @@ pub enum Expression<'a> {
     Nil,
 
     Unary(&'a Token, Box<Expression<'a>>),
-    Binary(Box<Expression<'a>>, &'a Token, Box<Expression<'a>>),
+    Assign(Box<Expression<'a>>, Box<Expression<'a>>),
+    Arithmetic(Box<Expression<'a>>, &'a Token, Box<Expression<'a>>),
+    Logic(Box<Expression<'a>>, &'a Token, Box<Expression<'a>>),
 }
 
 pub enum Statement<'a> {
     VarDeclaration(&'a String, Option<Box<Expression<'a>>>),
     Print(Box<Expression<'a>>),
-    Expressional(Box<Expression<'a>>),
+    If(
+        Box<Expression<'a>>,
+        Box<Statement<'a>>,
+        Option<Box<Statement<'a>>>,
+    ),
+    While(Box<Expression<'a>>, Box<Statement<'a>>),
+    For(
+        Option<Box<Expression<'a>>>,
+        Option<Box<Expression<'a>>>,
+        Option<Box<Expression<'a>>>,
+        Box<Statement<'a>>,
+    ),
+    ForWithInit(
+        Option<Box<Statement<'a>>>,
+        Option<Box<Expression<'a>>>,
+        Option<Box<Expression<'a>>>,
+        Box<Statement<'a>>,
+    ),
     Block(Vec<Statement<'a>>, Vec<Range<usize>>),
+    Expressional(Box<Expression<'a>>),
 
     // Special variant for error recovery.
     Error,
@@ -62,15 +82,14 @@ peg::parser!(grammar pegparser(
     context: &RefCell<ParsedContext<'input>>
 ) for ScannedContext {
 
-    pub rule declarations()
+    pub rule parse()
         = ds:top_declaration()*
 
     rule top_declaration()
-        = pos:position!() s:var_declaration() { context.borrow_mut().record(s, token_positions[pos].clone()) }
-        / pos:position!() s:print_statement() { context.borrow_mut().record(s, token_positions[pos].clone()) }
-        / pos:position!() s:expression_statement() { context.borrow_mut().record(s, token_positions[pos].clone()) }
-        / pos:position!() s:block_statement() { context.borrow_mut().record(s, token_positions[pos].clone()) }
-        / pos:position!() ![
+        = pos:position!() s:_declaration() { context.borrow_mut().record(s, token_positions[pos].clone()) }
+        // This is weird because statements are often not allowed to be top-level.
+        / pos:position!() s:statement() { context.borrow_mut().record(s, token_positions[pos].clone()) }
+        / pos:position!() ![ // Right brace is consumable error token here.
             Token::Semicolon |
             Token::LeftBrace |
             Token::Var
@@ -89,11 +108,9 @@ peg::parser!(grammar pegparser(
         }
 
     rule inblock_declaration() -> (Statement<'input>, Range<usize>)
-        = start:position!() s:var_declaration() { (s, token_positions[start].clone()) }
-        / start:position!() s:print_statement() { (s, token_positions[start].clone()) }
-        / start:position!() s:expression_statement() { (s, token_positions[start].clone()) }
-        / start:position!() s:block_statement() { (s, token_positions[start].clone()) }
-        / pos:position!() ![Token::RightBrace] ![
+        = start:position!() s:_declaration() { (s, token_positions[start].clone()) }
+        / start:position!() s:statement() { (s, token_positions[start].clone()) }
+        / pos:position!() ![Token::RightBrace] /* Right brace is unconsumable boundary in blocks. */ ![
             Token::Semicolon |
             Token::LeftBrace |
             Token::Var
@@ -110,6 +127,9 @@ peg::parser!(grammar pegparser(
             context.borrow_mut().panic_mode = false;
             (Statement::Error, token_positions[pos].clone())
         }
+
+    rule _declaration() -> Statement<'input>
+        = var_declaration()
 
     rule var_declaration() -> Statement<'input>
         = [Token::Var] name:variable_name() [Token::Equal] init:expression() must_consume(Token::Semicolon) {
@@ -140,24 +160,77 @@ peg::parser!(grammar pegparser(
             None
         }
 
+    rule statement() -> Statement<'input>
+        = print_statement()
+        / if_statement()
+        / while_statement()
+        / for_statement()
+        / for_with_init_statement()
+        / block_statement()
+        / expression_statement()
+
     rule print_statement() -> Statement<'input>
         = [Token::Print] e:expression() must_consume(Token::Semicolon) {
             Statement::Print(Box::new(e))
         }
 
-    rule expression_statement() -> Statement<'input>
-        = e:expression() must_consume(Token::Semicolon) { Statement::Expressional(Box::new(e)) }
+    rule if_statement() -> Statement<'input>
+        = [Token::If] must_consume(Token::LeftParenthesis) condition:expression() must_consume(Token::RightParenthesis)
+          then:statement() [Token::Else] otherwise:statement() {
+            Statement::If(Box::new(condition), Box::new(then), Some(Box::new(otherwise)))
+        }
+        / [Token::If] must_consume(Token::LeftParenthesis) condition:expression() must_consume(Token::RightParenthesis)
+          then:statement() {
+            Statement::If(Box::new(condition), Box::new(then), None)
+        }
+
+    rule while_statement() -> Statement<'input>
+        = [Token::While] must_consume(Token::LeftParenthesis) condition:expression() must_consume(Token::RightParenthesis)
+          body:statement() {
+            Statement::While(Box::new(condition), Box::new(body))
+        }
+
+    rule for_statement() -> Statement<'input>
+        = [Token::For]            [Token::LeftParenthesis]
+          init:expression()?      [Token::Semicolon]
+          condition:expression()? must_consume(Token::Semicolon)
+          inc:expression()?       must_consume(Token::RightParenthesis)
+          body:statement() {
+            Statement::For(
+                init.and_then(|e| Some(Box::new(e))),
+                condition.and_then(|e| Some(Box::new(e))),
+                inc.and_then(|e| Some(Box::new(e))),
+                Box::new(body),
+            )
+        }
+
+    rule for_with_init_statement() -> Statement<'input>
+        = [Token::For]            [Token::LeftParenthesis]
+          init:var_declaration()? [Token::Semicolon]?
+          condition:expression()? must_consume(Token::Semicolon)
+          inc:expression()?       must_consume(Token::RightParenthesis)
+          body:statement() {
+            Statement::ForWithInit(
+                init.and_then(|e| Some(Box::new(e))),
+                condition.and_then(|e| Some(Box::new(e))),
+                inc.and_then(|e| Some(Box::new(e))),
+                Box::new(body),
+            )
+        }
 
     rule block_statement() -> Statement<'input>
-        = [Token::LeftBrace] ds:inblock_declaration()* must_consume(Token::RightBrace) {
-            let mut statements = Vec::new();
-            let mut positions = Vec::new();
-            for (statement, position) in ds {
-                statements.push(statement);
-                positions.push(position);
-            }
-            Statement::Block(statements, positions)
+    = [Token::LeftBrace] ds:inblock_declaration()* must_consume(Token::RightBrace) {
+        let mut statements = Vec::new();
+        let mut positions = Vec::new();
+        for (statement, position) in ds {
+            statements.push(statement);
+            positions.push(position);
         }
+        Statement::Block(statements, positions)
+    }
+
+    rule expression_statement() -> Statement<'input>
+        = e:expression() must_consume(Token::Semicolon) { Statement::Expressional(Box::new(e)) }
 
     rule must_consume(token: Token)
         = [t if mem::discriminant(t) == mem::discriminant(&token)]
@@ -176,17 +249,21 @@ peg::parser!(grammar pegparser(
 
     rule expression() -> Expression<'input> = precedence! {
         // Assignment
-        x:@ op:[Token::Equal] y:(@) { Expression::Binary(Box::new(x), op, Box::new(y)) }
+        x:@ op:[Token::Equal] y:(@) { Expression::Assign(Box::new(x), Box::new(y)) }
+        -- // Or
+        x:(@) op:[Token::Or] y:@ { Expression::Logic(Box::new(x), op, Box::new(y)) }
+        -- // And
+        x:(@) op:[Token::And] y:@ { Expression::Logic(Box::new(x), op, Box::new(y)) }
         -- // Equality
-        x:(@) op:[Token::EqualEqual | Token::BangEqual] y:@ { Expression::Binary(Box::new(x), op, Box::new(y)) }
+        x:(@) op:[Token::EqualEqual | Token::BangEqual] y:@ { Expression::Arithmetic(Box::new(x), op, Box::new(y)) }
         -- // Comparison
         x:(@) op:[Token::Greater | Token::Less | Token::GreaterEqual | Token::LessEqual] y:@ {
-            Expression::Binary(Box::new(x), op, Box::new(y))
+            Expression::Arithmetic(Box::new(x), op, Box::new(y))
         }
         -- // Term
-        x:(@) op:[Token::Plus| Token::Minus] y:@ { Expression::Binary(Box::new(x), op, Box::new(y)) }
+        x:(@) op:[Token::Plus| Token::Minus] y:@ { Expression::Arithmetic(Box::new(x), op, Box::new(y)) }
         -- // Factor
-        x:(@) op:[Token::Star | Token::Slash] y:@ { Expression::Binary(Box::new(x), op, Box::new(y)) }
+        x:(@) op:[Token::Star | Token::Slash] y:@ { Expression::Arithmetic(Box::new(x), op, Box::new(y)) }
         -- // Unary
         op:[Token::Minus | Token::Bang] e:(@) { Expression::Unary(op, Box::new(e)) }
         -- // Primary
@@ -202,8 +279,7 @@ peg::parser!(grammar pegparser(
 
 pub fn parse(file_id: usize, scanned: &ScannedContext) -> InterpretResult<ParsedContext> {
     let context = RefCell::new(ParsedContext::new());
-    pegparser::declarations(scanned, file_id, &scanned.positions, &context)
-        .expect("internal parse error");
+    pegparser::parse(scanned, file_id, &scanned.positions, &context).expect("internal parse error");
     let context = RefCell::into_inner(context);
 
     if context.errors.is_empty() {

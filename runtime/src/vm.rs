@@ -48,6 +48,12 @@ impl VirtualMachine {
     fn run(&mut self) -> InterpretResult {
         let chunk = self.chunk.as_ref().unwrap();
 
+        #[cfg(debug_assertions)]
+        {
+            chunk.disassemble("Chunk Disassembly");
+            println!();
+        }
+
         macro_rules! report {
             ($code:expr, $message:expr, $label:expr) => {
                 return Err(InterpretError::Simple(
@@ -86,6 +92,11 @@ impl VirtualMachine {
         }
         #[rustfmt::skip] macro_rules! arithmetic_calc {($operator:tt) => { arithmetic!($operator, Number) };}
         #[rustfmt::skip] macro_rules! arithmetic_cmp { ($operator:tt) => { arithmetic!($operator, Boolean) };}
+
+        #[cfg(debug_assertions)]
+        {
+            println!("== VM Stack Steps ==");
+        }
 
         loop {
             #[cfg(debug_assertions)]
@@ -166,6 +177,34 @@ impl VirtualMachine {
                     } else {
                         report!("E1010", "set local with empty stack");
                     }
+                }
+                Instruction::JumpFalse(offset) => {
+                    let value = match self.stack.peek() {
+                        Some(value) => value.clone(),
+                        None => report!("E1012", "jump condition required but stack is empty"),
+                    };
+                    let falsiness = !value.as_bool();
+                    if falsiness {
+                        let offset = *offset as usize;
+                        if self.offset + offset >= chunk.code.len() {
+                            report!("E1011", "jumping out of code");
+                        }
+                        self.offset += offset - 1; // Subtract by 1 because the offset is increased by 1 every loop.
+                    }
+                }
+                Instruction::Jump(offset) => {
+                    let offset = *offset as usize;
+                    if self.offset + offset >= chunk.code.len() {
+                        report!("E1011", "jumping out of code");
+                    }
+                    self.offset += offset - 1;
+                }
+                Instruction::Loop(offset) => {
+                    let offset = *offset as usize;
+                    if self.offset < offset {
+                        report!("E1013", "loop back out of code");
+                    }
+                    self.offset -= offset + 1;
                 }
 
                 // Literal instructions.

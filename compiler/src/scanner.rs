@@ -237,7 +237,7 @@ peg::parser!(grammar pegscanner(file_id: usize, context: &mut ScannedContext) fo
     rule comment() = "//" [^'\n']*
 });
 
-pub fn scan<'a>(file_id: usize, input: &'a str) -> InterpretResult<ScannedContext> {
+pub fn scan(file_id: usize, input: &str) -> InterpretResult<ScannedContext> {
     let mut context = ScannedContext::new();
     pegscanner::scan(input, file_id, &mut context).expect("internal scan error.");
     match context.errors.is_empty() {

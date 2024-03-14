@@ -106,7 +106,9 @@ The error code concept is introduced with `codespan-reporting` as the supporting
 About all possible error codes Ruslox may report, please see [Error Codes](./Error%20Codes.md).
 
 ## Acknowledgements
-Learning and crafting compilers and interpreters (VMs) makes a lot of fun, but it may be a little bit frustrating when you're newcomers. There're some of my friends who helped me to overcome the learning curve and offered many useful ideas (with no particularly order):
+Learning and crafting compilers and interpreters (VMs) makes a lot of fun, but it may be a little bit frustrating when you're newcomers. There're some of my friends who helped me to overcome the learning curve and offered many useful ideas.
+
+With no particularly order:
 - [KumaWang](https://github.com/KumaWang)
 - [ScSofts](https://github.com/ScSofts)
 

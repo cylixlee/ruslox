@@ -10,6 +10,16 @@ pub enum Value {
     Object(ManagedReference),
 }
 
+impl Value {
+    pub fn as_bool(&self) -> bool {
+        match self {
+            Value::Nil => false,
+            Value::Boolean(boolean) => *boolean,
+            _ => true,
+        }
+    }
+}
+
 impl Display for Value {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {

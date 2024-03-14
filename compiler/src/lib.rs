@@ -76,11 +76,134 @@ impl<'a> Compiler<'a> {
                 self.emit_expression(expression, position)?;
                 self.chunk.write(Instruction::Print, position.clone());
             }
-            Statement::Expressional(expression) => {
-                self.emit_expression(expression, position)?;
+            Statement::If(condition, then, otherwise) => {
+                self.emit_expression(&condition, position)?;
+                // mark patch BEFORE the jump instruction.
+                let then_patch = self.chunk.code.len();
+                self.chunk
+                    .write(Instruction::JumpFalse(u16::MAX), position.clone());
+                // if we record patch here, we'll let patch=len - 1. this subtraction is unnecessary.
+                self.chunk.write(Instruction::Pop, position.clone());
+                self.emit_statement(&then, position)?;
+                let otherwise_patch = self.chunk.code.len();
+                self.chunk
+                    .write(Instruction::Jump(u16::MAX), position.clone());
+                // backpatch BEFORE the destination
+                self.chunk.backpatch(
+                    then_patch,
+                    Instruction::JumpFalse((self.chunk.code.len() - then_patch) as u16),
+                );
+                self.chunk.write(Instruction::Pop, position.clone());
+                // jump actually does vm.offset += offset. if we backpatch here, well use offset - 1 to skip the backpatched jump.
+                // this subtraction is unnecessary.
+                if let Some(otherwise) = otherwise {
+                    self.emit_statement(&otherwise, position)?;
+                }
+                self.chunk.backpatch(
+                    otherwise_patch,
+                    Instruction::Jump((self.chunk.code.len() - otherwise_patch) as u16),
+                );
+            }
+            Statement::While(condition, body) => {
+                let loop_patch = self.chunk.code.len();
+                self.emit_expression(condition, position)?;
+                let condition_patch = self.chunk.code.len();
+                self.chunk
+                    .write(Instruction::JumpFalse(u16::MAX), position.clone());
+                self.chunk.write(Instruction::Pop, position.clone());
+                self.emit_statement(body, position)?;
+                self.chunk.write(
+                    Instruction::Loop((self.chunk.code.len() - loop_patch) as u16),
+                    position.clone(),
+                );
+                self.chunk.backpatch(
+                    condition_patch,
+                    Instruction::JumpFalse((self.chunk.code.len() - condition_patch) as u16),
+                );
                 self.chunk.write(Instruction::Pop, position.clone());
             }
-            Statement::Error => unreachable!("still trying to emit after reporting diagnostics"),
+            Statement::For(init, condition, inc, body) => {
+                self.local_depth += 1;
+                if let Some(init) = init {
+                    self.emit_expression(init, position)?;
+                }
+                let condition_patch = self.chunk.code.len();
+                if let Some(condition) = condition {
+                    self.emit_expression(condition, position)?;
+                }
+                let break_patch = self.chunk.code.len();
+                self.chunk
+                    .write(Instruction::JumpFalse(u16::MAX), position.clone());
+                self.chunk.write(Instruction::Pop, position.clone());
+                let body_patch = self.chunk.code.len();
+                self.chunk
+                    .write(Instruction::Jump(u16::MAX), position.clone());
+                let inc_patch = self.chunk.code.len();
+                if let Some(inc) = inc {
+                    self.emit_expression(inc, position)?;
+                }
+                self.chunk.write(Instruction::Pop, position.clone());
+                self.chunk.write(
+                    Instruction::Loop((self.chunk.code.len() - condition_patch) as u16),
+                    position.clone(),
+                );
+                self.chunk.backpatch(
+                    body_patch,
+                    Instruction::Jump((self.chunk.code.len() - body_patch) as u16),
+                );
+                self.emit_statement(body, position)?;
+                self.chunk.write(
+                    Instruction::Loop((self.chunk.code.len() - inc_patch) as u16),
+                    position.clone(),
+                );
+                self.chunk.backpatch(
+                    break_patch,
+                    Instruction::JumpFalse((self.chunk.code.len() - break_patch) as u16),
+                );
+                self.chunk.write(Instruction::Pop, position.clone());
+                self.local_depth -= 1;
+            }
+            Statement::ForWithInit(init, condition, inc, body) => {
+                self.local_depth += 1;
+                if let Some(init) = init {
+                    self.emit_statement(init, position)?;
+                }
+                let condition_patch = self.chunk.code.len();
+                if let Some(condition) = condition {
+                    self.emit_expression(condition, position)?;
+                }
+                let break_patch = self.chunk.code.len();
+                self.chunk
+                    .write(Instruction::JumpFalse(u16::MAX), position.clone());
+                self.chunk.write(Instruction::Pop, position.clone());
+                let body_patch = self.chunk.code.len();
+                self.chunk
+                    .write(Instruction::Jump(u16::MAX), position.clone());
+                let inc_patch = self.chunk.code.len();
+                if let Some(inc) = inc {
+                    self.emit_expression(inc, position)?;
+                }
+                self.chunk.write(Instruction::Pop, position.clone());
+                self.chunk.write(
+                    Instruction::Loop((self.chunk.code.len() - condition_patch) as u16),
+                    position.clone(),
+                );
+                self.chunk.backpatch(
+                    body_patch,
+                    Instruction::Jump((self.chunk.code.len() - body_patch) as u16),
+                );
+                self.emit_statement(body, position)?;
+                self.chunk.write(
+                    Instruction::Loop((self.chunk.code.len() - inc_patch) as u16),
+                    position.clone(),
+                );
+                self.chunk.backpatch(
+                    break_patch,
+                    Instruction::JumpFalse((self.chunk.code.len() - break_patch) as u16),
+                );
+                self.chunk.write(Instruction::Pop, position.clone());
+                self.local_depth -= 1;
+            }
             Statement::Block(statements, positions) => {
                 self.local_depth += 1;
                 for (statement, position) in statements.iter().zip(positions) {
@@ -90,10 +213,18 @@ impl<'a> Compiler<'a> {
                     if local.depth == self.local_depth {
                         self.chunk.write(Instruction::Pop, position.clone());
                         self.locals.pop()?;
+                    } else {
+                        break;
                     }
                 }
                 self.local_depth -= 1;
             }
+            Statement::Expressional(expression) => {
+                self.emit_expression(expression, position)?;
+                self.chunk.write(Instruction::Pop, position.clone());
+            }
+            // Unreachable
+            Statement::Error => unreachable!("still trying to emit after reporting diagnostics"),
         }
         Ok(())
     }
@@ -143,64 +274,95 @@ impl<'a> Compiler<'a> {
                     _ => unreachable!("emit failure due to parse error at unary expressions."),
                 }
             }
-            Expression::Binary(left, operator, right) => {
-                if let Token::Equal = operator {
-                    match &**left {
-                        Expression::Identifier(identifier) => {
-                            let index = self
-                                .emit_constant(Constant::String((*identifier).clone()), position)?;
-                            self.emit_expression(&right, position)?;
-                            let mut is_local = false;
-                            for slot in (0..self.locals.len()).rev() {
-                                let local = &self.locals[slot];
-                                if local.name == **identifier {
-                                    self.chunk
-                                        .write(Instruction::SetLocal(slot as u8), position.clone());
-                                    is_local = true;
-                                    break;
-                                }
-                            }
-                            if !is_local {
-                                self.chunk
-                                    .write(Instruction::SetGlobal(index), position.clone());
-                            }
-                        }
-                        _ => {
-                            return self.report(
-                                position,
-                                "E0008",
-                                "invalid assignment target",
-                                "assignment within this statement",
-                            )
+            Expression::Assign(target, source) => match &**target {
+                Expression::Identifier(identifier) => {
+                    let index =
+                        self.emit_constant(Constant::String((*identifier).clone()), position)?;
+                    self.emit_expression(&source, position)?;
+                    let mut is_local = false;
+                    for slot in (0..self.locals.len()).rev() {
+                        let local = &self.locals[slot];
+                        if local.name == **identifier {
+                            self.chunk
+                                .write(Instruction::SetLocal(slot as u8), position.clone());
+                            is_local = true;
+                            break;
                         }
                     }
-                } else {
-                    self.emit_expression(&left, position)?;
-                    self.emit_expression(&right, position)?;
-                    match operator {
-                        Token::Plus => self.chunk.write(Instruction::Add, position.clone()),
-                        Token::Minus => self.chunk.write(Instruction::Subtract, position.clone()),
-                        Token::Star => self.chunk.write(Instruction::Multiply, position.clone()),
-                        Token::Slash => self.chunk.write(Instruction::Multiply, position.clone()),
-                        Token::Greater => self.chunk.write(Instruction::Greater, position.clone()),
-                        Token::Less => self.chunk.write(Instruction::Less, position.clone()),
-                        Token::EqualEqual => self.chunk.write(Instruction::Equal, position.clone()),
-                        Token::GreaterEqual => {
-                            self.chunk.write(Instruction::Less, position.clone());
-                            self.chunk.write(Instruction::Not, position.clone());
-                        }
-                        Token::LessEqual => {
-                            self.chunk.write(Instruction::Greater, position.clone());
-                            self.chunk.write(Instruction::Not, position.clone());
-                        }
-                        Token::BangEqual => {
-                            self.chunk.write(Instruction::Equal, position.clone());
-                            self.chunk.write(Instruction::Not, position.clone());
-                        }
-                        _ => unreachable!("emit failure due to parse error at binary expressions."),
+                    if !is_local {
+                        self.chunk
+                            .write(Instruction::SetGlobal(index), position.clone());
                     }
                 }
+                _ => {
+                    return self.report(
+                        position,
+                        "E0008",
+                        "invalid assignment target",
+                        "assignment within this statement",
+                    )
+                }
+            },
+            Expression::Arithmetic(left, operator, right) => {
+                self.emit_expression(&left, position)?;
+                self.emit_expression(&right, position)?;
+                match operator {
+                    Token::Plus => self.chunk.write(Instruction::Add, position.clone()),
+                    Token::Minus => self.chunk.write(Instruction::Subtract, position.clone()),
+                    Token::Star => self.chunk.write(Instruction::Multiply, position.clone()),
+                    Token::Slash => self.chunk.write(Instruction::Multiply, position.clone()),
+                    Token::Greater => self.chunk.write(Instruction::Greater, position.clone()),
+                    Token::Less => self.chunk.write(Instruction::Less, position.clone()),
+                    Token::EqualEqual => self.chunk.write(Instruction::Equal, position.clone()),
+                    Token::GreaterEqual => {
+                        self.chunk.write(Instruction::Less, position.clone());
+                        self.chunk.write(Instruction::Not, position.clone());
+                    }
+                    Token::LessEqual => {
+                        self.chunk.write(Instruction::Greater, position.clone());
+                        self.chunk.write(Instruction::Not, position.clone());
+                    }
+                    Token::BangEqual => {
+                        self.chunk.write(Instruction::Equal, position.clone());
+                        self.chunk.write(Instruction::Not, position.clone());
+                    }
+                    _ => unreachable!("emit failure due to parse error at binary expressions."),
+                }
             }
+            Expression::Logic(left, operator, right) => match operator {
+                Token::And => {
+                    self.emit_expression(left, position)?;
+                    let patch = self.chunk.code.len();
+                    self.chunk
+                        .write(Instruction::JumpFalse(u16::MAX), position.clone());
+                    self.chunk.write(Instruction::Pop, position.clone());
+                    self.emit_expression(right, position)?;
+                    self.chunk.backpatch(
+                        patch,
+                        Instruction::JumpFalse((self.chunk.code.len() - patch) as u16),
+                    );
+                }
+                Token::Or => {
+                    self.emit_expression(left, position)?;
+                    let false_patch = self.chunk.code.len();
+                    self.chunk
+                        .write(Instruction::JumpFalse(u16::MAX), position.clone());
+                    let patch = self.chunk.code.len();
+                    self.chunk
+                        .write(Instruction::Jump(u16::MAX), position.clone());
+                    self.chunk.backpatch(
+                        false_patch,
+                        Instruction::JumpFalse((self.chunk.code.len() - false_patch) as u16),
+                    );
+                    self.chunk.write(Instruction::Pop, position.clone());
+                    self.emit_expression(right, position)?;
+                    self.chunk.backpatch(
+                        patch,
+                        Instruction::Jump((self.chunk.code.len() - patch) as u16),
+                    );
+                }
+                _ => unreachable!("emit failure due to parse error at logic expressions."),
+            },
         }
         Ok(())
     }

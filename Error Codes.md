@@ -22,3 +22,6 @@ Ruslox uses `codespan-reporting` to emit pretty error diagnostics with error cod
 - `E1008`: undefined global
 - `E1009`: get local with empty stack slot
 - `E1010`: set local with empty stack slot
+- `E1011`: jumping out of code
+- `E1012`: jump condition required but stack is empty
+- `E1013`: loop back out of code
