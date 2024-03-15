@@ -1,4 +1,9 @@
 # Ruslox
+
+> This project is not under maintainence now. Writing Rust according to existing C code is hard, especially those with **many many** pointers.
+>
+> A new Rust implementation of Lox is under development, and will be open-source when complete.
+
 Ruslox is the Rust implementation of Lox language, with some difference from the `clox` compiler and VM.
 
 - [Ruslox](#ruslox)
