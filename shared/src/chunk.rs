@@ -28,7 +28,33 @@ pub struct Chunk {
     pub constants: Vec<Constant>,
 }
 
+macro_rules! register_backpatch {
+    ($($instruction:ident), *) => {
+        paste::paste! {
+            $(
+                pub fn [<spare_ $instruction:lower>](&mut self, position: &Range<usize>) -> usize {
+                    let len = self.code.len();
+                    self.write(Instruction::$instruction(len as u16), position);
+                    len
+                }
+            )*
+
+            pub fn patch(&mut self, offset: usize) {
+                let len = self.code.len() as u16;
+                match &mut self.code[offset] {
+                    $(
+                        Instruction::$instruction(offset) => *offset = len - *offset,
+                    )*
+                    _ => unreachable!("internal error when backpatch"),
+                }
+            }
+        }
+    };
+}
+
 impl Chunk {
+    register_backpatch!(JumpFalse, Jump, Loop);
+
     pub fn new(file_id: usize) -> Self {
         Self {
             file_id,
@@ -38,13 +64,9 @@ impl Chunk {
         }
     }
 
-    pub fn write(&mut self, instruction: Instruction, position: Range<usize>) {
+    pub fn write(&mut self, instruction: Instruction, position: &Range<usize>) {
         self.code.push(instruction);
-        self.positions.push(position);
-    }
-
-    pub fn backpatch(&mut self, offset: usize, instruction: Instruction) {
-        self.code[offset] = instruction;
+        self.positions.push(position.clone());
     }
 
     pub fn add_constant(&mut self, value: Constant) -> Option<u8> {

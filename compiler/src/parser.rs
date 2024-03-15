@@ -21,9 +21,9 @@ impl<'a> ParsedContext<'a> {
         }
     }
 
-    fn record(&mut self, statement: Statement<'a>, position: Range<usize>) {
+    fn record(&mut self, statement: Statement<'a>, position: &Range<usize>) {
         self.statements.push(statement);
-        self.positions.push(position);
+        self.positions.push(position.clone());
     }
 
     fn report(&mut self, error: ErrorItem) {
@@ -78,7 +78,7 @@ pub enum Statement<'a> {
 
 peg::parser!(grammar pegparser(
     file_id: usize,
-    token_positions: &Vec<Range<usize>>,
+    token_positions: &'input Vec<Range<usize>>,
     context: &RefCell<ParsedContext<'input>>
 ) for ScannedContext {
 
@@ -86,9 +86,9 @@ peg::parser!(grammar pegparser(
         = ds:top_declaration()*
 
     rule top_declaration()
-        = pos:position!() s:_declaration() { context.borrow_mut().record(s, token_positions[pos].clone()) }
+        = pos:position!() s:_declaration() { context.borrow_mut().record(s, &token_positions[pos]) }
         // This is weird because statements are often not allowed to be top-level.
-        / pos:position!() s:statement() { context.borrow_mut().record(s, token_positions[pos].clone()) }
+        / pos:position!() s:statement() { context.borrow_mut().record(s, &token_positions[pos]) }
         / pos:position!() ![ // Right brace is consumable error token here.
             Token::Semicolon |
             Token::LeftBrace |
@@ -104,12 +104,12 @@ peg::parser!(grammar pegparser(
                     ])
             );
             context.borrow_mut().panic_mode = false;
-            context.borrow_mut().record(Statement::Error, token_positions[pos].clone());
+            context.borrow_mut().record(Statement::Error, &token_positions[pos]);
         }
 
-    rule inblock_declaration() -> (Statement<'input>, Range<usize>)
-        = start:position!() s:_declaration() { (s, token_positions[start].clone()) }
-        / start:position!() s:statement() { (s, token_positions[start].clone()) }
+    rule inblock_declaration() -> (Statement<'input>, &'input Range<usize>)
+        = start:position!() s:_declaration() { (s, &token_positions[start]) }
+        / start:position!() s:statement() { (s, &token_positions[start]) }
         / pos:position!() ![Token::RightBrace] /* Right brace is unconsumable boundary in blocks. */ ![
             Token::Semicolon |
             Token::LeftBrace |
@@ -125,7 +125,7 @@ peg::parser!(grammar pegparser(
                     ])
             );
             context.borrow_mut().panic_mode = false;
-            (Statement::Error, token_positions[pos].clone())
+            (Statement::Error, &token_positions[pos])
         }
 
     rule _declaration() -> Statement<'input>
@@ -224,7 +224,7 @@ peg::parser!(grammar pegparser(
         let mut positions = Vec::new();
         for (statement, position) in ds {
             statements.push(statement);
-            positions.push(position);
+            positions.push(position.clone());
         }
         Statement::Block(statements, positions)
     }
